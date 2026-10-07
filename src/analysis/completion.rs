@@ -140,7 +140,7 @@ impl Analysis {
                 let start = t.span.start + digits.len() as u32;
                 return (Span { start, end: offset }, Context::Unit);
             }
-            // Inside an operator such as `->`: nothing goes there.
+            // Inside an operator such as `|>`: nothing goes there.
             Some(t) if t.span.end > offset => return (here, Context::Nothing),
             _ => (here, i),
         };
@@ -158,9 +158,13 @@ impl Analysis {
             Some(TokenKind::LParen | TokenKind::Comma) if self.in_param_list(before) => {
                 Context::Nothing
             }
-            Some(TokenKind::Arrow | TokenKind::As) => Context::Type,
+            Some(TokenKind::As) => Context::Type,
+            // The return type, right after the parameter list.
+            Some(TokenKind::RParen) if self.in_param_list(before - 1) => Context::Type,
             Some(TokenKind::LBracket)
-                if matches!(kind(prev2), Some(TokenKind::Colon | TokenKind::Arrow)) =>
+                if kind(prev2) == Some(TokenKind::Colon)
+                    || (kind(prev2) == Some(TokenKind::RParen)
+                        && self.in_param_list(before - 2)) =>
             {
                 Context::Type
             }
@@ -513,8 +517,8 @@ impl Analysis {
             .iter()
             .map(|k| {
                 let snippet = match *k {
-                    "rill" => Some("rill ${1:name}($2) -> ${3:Sample} {\n\t$0\n}"),
-                    "fn" => Some("fn ${1:name}($2) -> ${3:Sample} {\n\t$0\n}"),
+                    "rill" => Some("rill ${1:name}($2) ${3:Sample} {\n\t$0\n}"),
+                    "fn" => Some("fn ${1:name}($2) ${3:Sample} {\n\t$0\n}"),
                     "if" => Some("if $1 {\n\t$0\n}"),
                     _ => None,
                 };
@@ -575,12 +579,12 @@ mod tests {
         }
     }
 
-    const HEAD: &str = "fn half(x: Sample) -> Sample { x / 2 }\nrill osc(freq: Freq) -> Sample { return sin(freq / RATE) }\n";
+    const HEAD: &str = "fn half(x: Sample) Sample { x / 2 }\nrill osc(freq: Freq) Sample { return sin(freq / RATE) }\n";
 
     #[test]
     fn expressions_offer_locals_defs_builtins() {
         let src = format!(
-            "{HEAD}rill main(gain: Float = 1) -> Sample {{\n    let a = 1\n    return a * g$\n}}"
+            "{HEAD}rill main(gain: Float = 1) Sample {{\n    let a = 1\n    return a * g$\n}}"
         );
         has(&src, &["a", "gain", "half", "osc", "sin", "RATE", "true"]);
         lacks(&src, &["let", "state", "freq", "x"]);
@@ -593,9 +597,9 @@ mod tests {
 
     #[test]
     fn statement_start_offers_statement_keywords() {
-        let src = format!("{HEAD}rill main() -> Sample {{\n    let a = 1\n    $\n}}");
+        let src = format!("{HEAD}rill main() Sample {{\n    let a = 1\n    $\n}}");
         has(&src, &["let", "state", "return", "a"]);
-        let src = format!("{HEAD}fn f() -> Sample {{\n    $\n}}");
+        let src = format!("{HEAD}fn f() Sample {{\n    $\n}}");
         has(&src, &["let", "return"]);
         // Fns cannot call rills or keep state.
         lacks(&src, &["state", "osc"]);
@@ -604,7 +608,7 @@ mod tests {
     #[test]
     fn while_typing_at_the_end_of_an_unclosed_body() {
         let src =
-            format!("{HEAD}rill main(gain: Float) -> Sample {{\n    let a = 1\n    let b = a + $");
+            format!("{HEAD}rill main(gain: Float) Sample {{\n    let a = 1\n    let b = a + $");
         has(&src, &["a", "gain", "osc"]);
         lacks(&src, &["b"]);
     }
@@ -612,9 +616,12 @@ mod tests {
     #[test]
     fn types() {
         has(&format!("{HEAD}rill f(x: $"), &["Sample", "Freq", "Gain"]);
-        has(&format!("{HEAD}rill f(x: Sample) -> $"), &["Sample"]);
+        has(&format!("{HEAD}rill f(x: Sample) $"), &["Sample"]);
+        has(&format!("{HEAD}rill f(x: Sample) [$"), &["Sample"]);
+        has(&format!("{HEAD}rill f(x: fn(Pitch) $"), &["Freq"]);
+        lacks(&format!("{HEAD}rill f() Sample {{\n    return sin(1) $"), &["Sample"]);
         has(
-            &format!("{HEAD}rill f() -> Sample {{\n    let a: F$\n"),
+            &format!("{HEAD}rill f() Sample {{\n    let a: F$\n"),
             &["Float", "Freq"],
         );
         has("rill f<N>(x: [S$", &["Sample", "N"]);
@@ -623,7 +630,7 @@ mod tests {
 
     #[test]
     fn units() {
-        let c = complete("rill f() -> Sample { let t = 300m$ }");
+        let c = complete("rill f() Sample { let t = 300m$ }");
         let labels: Vec<&str> = c.items.iter().map(|i| i.label.as_str()).collect();
         assert!(
             labels.contains(&"ms") && labels.contains(&"Hz"),
@@ -635,7 +642,7 @@ mod tests {
 
     #[test]
     fn pipes_prefer_what_fits() {
-        let src = format!("{HEAD}rill main() -> Sample {{ return 440Hz |> $ }}");
+        let src = format!("{HEAD}rill main() Sample {{ return 440Hz |> $ }}");
         let got = labels(&src);
         let pos = |n: &str| got.iter().position(|g| g == n).unwrap();
         // `osc` takes a `Freq`; `half` takes a `Sample`.
@@ -645,20 +652,20 @@ mod tests {
 
     #[test]
     fn named_arguments() {
-        let src = format!("{HEAD}rill main() -> Sample {{ return osc($) }}");
+        let src = format!("{HEAD}rill main() Sample {{ return osc($) }}");
         has(&src, &["freq:"]);
-        let src = "rill main() -> Sample { return sin(equal(A4, steps: 24, $)) }";
+        let src = "rill main() Sample { return sin(equal(A4, steps: 24, $)) }";
         has(src, &["a4:"]);
         lacks(src, &["steps:", "pitch:"]);
     }
 
     #[test]
     fn nothing_when_naming_or_commenting() {
-        assert!(labels(&format!("{HEAD}rill main() -> Sample {{\n    let $")).is_empty());
+        assert!(labels(&format!("{HEAD}rill main() Sample {{\n    let $")).is_empty());
         assert!(labels(&format!("{HEAD}rill m$")).is_empty());
         assert!(labels(&format!("{HEAD}rill main(fr$")).is_empty());
-        assert!(labels(&format!("{HEAD}rill main() -> Sample {{ // so$\n }}")).is_empty());
-        assert!(labels("rill main() -> Sample { return fn(p$) { p } }").is_empty());
+        assert!(labels(&format!("{HEAD}rill main() Sample {{ // so$\n }}")).is_empty());
+        assert!(labels("rill main() Sample { return fn(p$) { p } }").is_empty());
     }
 
     #[test]

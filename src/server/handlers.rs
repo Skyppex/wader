@@ -44,8 +44,7 @@ impl Server {
                 change: TextDocumentSyncKind::Full,
             }),
             hover_provider: Some(true),
-            // `|>` and `->` both end in `>`, and both have obvious
-            // things to follow them.
+            // After `|>` there is an obvious thing to follow: a function.
             completion_provider: Some(CompletionOptions {
                 trigger_characters: Some(vec![">".into()]),
                 resolve_provider: None,

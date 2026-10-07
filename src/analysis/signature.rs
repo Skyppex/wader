@@ -133,7 +133,7 @@ impl Analysis {
                     label += &p.to_string();
                     spans.push((start, label.len()));
                 }
-                label += &format!(") -> {ret}");
+                label += &format!(") {ret}");
                 vec![SignatureInfo {
                     rendered: Rendered {
                         label,
@@ -194,12 +194,12 @@ mod tests {
     const DEFS: &str = "\
 // Clips softly.
 rill clip(x: Sample, drive: Float = 2, // how hard
-          ceiling: Float = 1) -> Sample { return tanh(x * drive) * ceiling }
+          ceiling: Float = 1) Sample { return tanh(x * drive) * ceiling }
 ";
 
     #[test]
     fn positional_arguments() {
-        let src = |call: &str| format!("{DEFS}rill main() -> Sample {{ return {call} }}");
+        let src = |call: &str| format!("{DEFS}rill main() Sample {{ return {call} }}");
         assert_eq!(active(&src("clip($0.5)")).as_deref(), Some("x: Sample"));
         assert_eq!(
             active(&src("clip(0.5, $3)")).as_deref(),
@@ -218,7 +218,7 @@ rill clip(x: Sample, drive: Float = 2, // how hard
 
     #[test]
     fn named_and_piped_arguments() {
-        let src = |call: &str| format!("{DEFS}rill main() -> Sample {{ return {call} }}");
+        let src = |call: &str| format!("{DEFS}rill main() Sample {{ return {call} }}");
         assert_eq!(
             active(&src("clip(0.5, ceiling: $1)")).as_deref(),
             Some("ceiling: Float = 1")
@@ -231,26 +231,26 @@ rill clip(x: Sample, drive: Float = 2, // how hard
 
     #[test]
     fn broken_calls_use_the_tokens() {
-        let src = format!("{DEFS}rill main() -> Sample {{\n    let y = clip(0.5, $\n");
+        let src = format!("{DEFS}rill main() Sample {{\n    let y = clip(0.5, $\n");
         assert_eq!(active(&src).as_deref(), Some("drive: Float = 2"));
-        let src = format!("{DEFS}rill main() -> Sample {{\n    let y = 0.5 |> clip($\n");
+        let src = format!("{DEFS}rill main() Sample {{\n    let y = 0.5 |> clip($\n");
         assert_eq!(active(&src).as_deref(), Some("drive: Float = 2"));
-        let src = format!("{DEFS}rill main() -> Sample {{\n    let y = clip(0.5, ceiling: $\n");
+        let src = format!("{DEFS}rill main() Sample {{\n    let y = clip(0.5, ceiling: $\n");
         assert_eq!(active(&src).as_deref(), Some("ceiling: Float = 1"));
     }
 
     #[test]
     fn builtin_overloads_pick_by_argument_count() {
-        let src = |call: &str| format!("rill main(a: Sample) -> Sample {{ return {call} }}");
+        let src = |call: &str| format!("rill main(a: Sample) Sample {{ return {call} }}");
         let (label, p) = help(&src("max($a)")).unwrap();
         assert_eq!(
             (label.as_str(), p.as_deref()),
-            ("fn max<N>(x: [T; N]) -> T", Some("x: [T; N]"))
+            ("fn max<N>(x: [T; N]) T", Some("x: [T; N]"))
         );
         let (label, p) = help(&src("max(a, $a)")).unwrap();
         assert_eq!(
             (label.as_str(), p.as_deref()),
-            ("fn max(a: S, b: S) -> S", Some("b: S"))
+            ("fn max(a: S, b: S) S", Some("b: S"))
         );
         assert_eq!(
             active(&src("sin(equal(A4, a4: $440Hz))")).as_deref(),
@@ -260,8 +260,8 @@ rill clip(x: Sample, drive: Float = 2, // how hard
 
     #[test]
     fn docs_come_along() {
-        let offset = DEFS.len() as u32 + "rill main() -> Sample { return clip(".len() as u32;
-        let a = Analysis::new(&format!("{DEFS}rill main() -> Sample {{ return clip(1) }}"));
+        let offset = DEFS.len() as u32 + "rill main() Sample { return clip(".len() as u32;
+        let a = Analysis::new(&format!("{DEFS}rill main() Sample {{ return clip(1) }}"));
         let h = a.signature_help(offset).unwrap();
         let sig = &h.signatures[0];
         assert_eq!(sig.doc.as_deref(), Some("Clips softly."));
@@ -270,10 +270,10 @@ rill clip(x: Sample, drive: Float = 2, // how hard
 
     #[test]
     fn function_values() {
-        let src = "rill main(f: fn(Sample, Float) -> Sample) -> Sample { return f(1, $2) }";
+        let src = "rill main(f: fn(Sample, Float) Sample) Sample { return f(1, $2) }";
         assert_eq!(
             help(src),
-            Some(("f(Sample, Float) -> Sample".into(), Some("Float".into())))
+            Some(("f(Sample, Float) Sample".into(), Some("Float".into())))
         );
     }
 }

@@ -35,21 +35,21 @@ fn capabilities_cover_every_feature() {
 #[test]
 fn hover() {
     let (mut client, pos) = open(
-        "// Doubles.\nfn twice(x: Sample) -> Sample { x * 2 }\nrill main() -> Sample { return tw$ice(1) }",
+        "// Doubles.\nfn twice(x: Sample) Sample { x * 2 }\nrill main() Sample { return tw$ice(1) }",
     );
     let h = client.request::<r::HoverRequest>(at(pos)).unwrap().unwrap();
     assert_eq!(h.contents.kind, lsp::MarkupKind::Markdown);
     assert_eq!(
         h.contents.value,
-        "```rill\nfn twice(x: Sample) -> Sample\n```\n\nDoubles."
+        "```rill\nfn twice(x: Sample) Sample\n```\n\nDoubles."
     );
-    assert_eq!(h.range, Some(range(2, 31, 2, 36)));
+    assert_eq!(h.range, Some(range(2, 28, 2, 33)));
 }
 
 #[test]
 fn signature_help_offsets_count_utf16() {
     // A default holding a note shifts the second parameter by two units.
-    let src = "rill f(a: Float = 1 /*🎵*/, b: Float = 2) -> Sample { return a * b }\nrill main() -> Sample { return f(1, $) }";
+    let src = "rill f(a: Float = 1 /*🎵*/, b: Float = 2) Sample { return a * b }\nrill main() Sample { return f(1, $) }";
     let (mut client, pos) = open(src);
     let help = client
         .request::<r::SignatureHelpRequest>(lsp::SignatureHelpParams {
@@ -74,7 +74,7 @@ fn signature_help_offsets_count_utf16() {
 #[test]
 fn signature_help_without_offset_support_sends_strings() {
     let mut client = Client::with_capabilities(lsp::ClientCapabilities::default()).0;
-    let (text, pos) = common::cursor("rill main() -> Sample { return sin($) }");
+    let (text, pos) = common::cursor("rill main() Sample { return sin($) }");
     client.open(&uri(), &text);
     let help = client
         .request::<r::SignatureHelpRequest>(lsp::SignatureHelpParams {
@@ -90,7 +90,7 @@ fn signature_help_without_offset_support_sends_strings() {
 
 #[test]
 fn completion_replaces_the_word_being_typed() {
-    let (mut client, pos) = open("rill main(gain: Float) -> Sample {\n    let a = ga$\n");
+    let (mut client, pos) = open("rill main(gain: Float) Sample {\n    let a = ga$\n");
     let list = client
         .request::<r::Completion>(lsp::CompletionParams {
             text_document: at(pos).text_document,
@@ -109,7 +109,7 @@ fn completion_replaces_the_word_being_typed() {
 #[test]
 fn prepare_rename_and_rename() {
     let (mut client, pos) =
-        open("rill main() -> Sample {\n    let v$ol = 0.5\n    return sin(vol) * vol\n}");
+        open("rill main() Sample {\n    let v$ol = 0.5\n    return sin(vol) * vol\n}");
     let prepared = client
         .request::<r::PrepareRename>(at(pos))
         .unwrap()

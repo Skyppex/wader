@@ -151,12 +151,12 @@ mod tests {
     }
 
     const SRC: &str = "\
-rill osc(freq: Freq) -> Sample {
+rill osc(freq: Freq) Sample {
     state phase: Float = 0
     phase = wrap(phase + freq / RATE)
     return sin(phase * TAU)
 }
-rill main() -> Sample {
+rill main() Sample {
     let f = 440Hz
     return osc(freq: f) + (f |> osc)
 }
@@ -229,9 +229,9 @@ rill main() -> Sample {
         assert!(rename(&cursor("osc", 0), "main").is_err());
         // A fn named like a note: calls still find the fn, but as a value
         // the name would be read as the note.
-        let src = "fn $tune(p: Pitch) -> Freq { equal(p) }\nrill main() -> Sample { return sin(A4 |> tune) }";
+        let src = "fn $tune(p: Pitch) Freq { equal(p) }\nrill main() Sample { return sin(A4 |> tune) }";
         assert!(rename(src, "C4").unwrap().contains("|> C4"));
-        let src = "fn $tune(p: Pitch) -> Freq { equal(p) }\nrill main() -> Sample {\n    let g = tune\n    return sin(A4 |> g / RATE)\n}";
+        let src = "fn $tune(p: Pitch) Freq { equal(p) }\nrill main() Sample {\n    let g = tune\n    return sin(A4 |> g / RATE)\n}";
         assert!(rename(src, "x").is_ok());
         assert!(rename(src, "C4").is_err());
     }

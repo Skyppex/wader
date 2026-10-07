@@ -45,8 +45,8 @@ mod tests {
     }
 
     const SRC: &str = "\
-fn half(x: Sample) -> Sample { x / 2 }
-rill main(freq: Freq = 440Hz) -> Sample {
+fn half(x: Sample) Sample { x / 2 }
+rill main(freq: Freq = 440Hz) Sample {
     state phase: Float = 0
     phase = wrap(phase + freq / RATE)
     let s = sin(phase * TAU) |> half
@@ -109,14 +109,14 @@ rill main(freq: Freq = 440Hz) -> Sample {
         assert_eq!(a.references(o, true).len(), 4);
 
         // Built-ins are found too, though they have no declaration.
-        let src = "rill main() -> Sample { return sin(sin(1)) }";
+        let src = "rill main() Sample { return sin(sin(1)) }";
         let (a, o) = at(&src.replacen("sin", "$sin", 1));
         assert_eq!(a.references(o, true).len(), 2);
     }
 
     #[test]
     fn named_arguments_refer_to_the_parameter() {
-        let src = "rill osc(freq: Freq) -> Sample { return sin(freq / RATE) }\nrill main() -> Sample { return osc(fr$eq: 440Hz) }";
+        let src = "rill osc(freq: Freq) Sample { return sin(freq / RATE) }\nrill main() Sample { return osc(fr$eq: 440Hz) }";
         let (a, o) = at(src);
         let def = a.definition(o).unwrap();
         assert_eq!(def.start as usize, src.find("freq").unwrap());
@@ -125,7 +125,7 @@ rill main(freq: Freq = 440Hz) -> Sample {
 
     #[test]
     fn works_while_the_text_is_broken() {
-        let src = "rill main(gain: Float) -> Sample {\n    let x = sin(1) * ga$in\n    let y = (x +\n    return x\n";
+        let src = "rill main(gain: Float) Sample {\n    let x = sin(1) * ga$in\n    let y = (x +\n    return x\n";
         let (a, o) = at(src);
         assert_eq!(a.definition(o).map(|d| d.start as usize), src.find("gain"));
     }

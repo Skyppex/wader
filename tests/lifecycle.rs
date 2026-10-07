@@ -106,11 +106,11 @@ fn exit_without_shutdown_is_code_1() {
 #[test]
 fn diagnostics_follow_edits() {
     let mut client = Client::new();
-    let good = "rill main() -> Sample {\n    return sin(0.5)\n}\n";
+    let good = "rill main() Sample {\n    return sin(0.5)\n}\n";
     client.open(&uri(), good);
     assert_eq!(client.diagnostics(&uri()), Some(vec![]));
 
-    let bad = "rill main() -> Sample {\n    return sine(0.5)\n}\n";
+    let bad = "rill main() Sample {\n    return sine(0.5)\n}\n";
     client.change(&uri(), bad);
     let diags = client.diagnostics(&uri()).unwrap();
     assert_eq!(diags.len(), 1, "{diags:?}");
@@ -137,7 +137,7 @@ fn library_files_without_main_are_fine() {
     let mut client = Client::new();
     client.open(
         &uri(),
-        "fn half(x: Sample) -> Sample {\n    return x / 2\n}\n",
+        "fn half(x: Sample) Sample {\n    return x / 2\n}\n",
     );
     assert_eq!(client.diagnostics(&uri()), Some(vec![]));
 }
@@ -145,7 +145,7 @@ fn library_files_without_main_are_fine() {
 #[test]
 fn lexer_errors_are_reported() {
     let mut client = Client::new();
-    client.open(&uri(), "rill main() -> Sample {\n    return 440hz\n}\n");
+    client.open(&uri(), "rill main() Sample {\n    return 440hz\n}\n");
     let diags = client.diagnostics(&uri()).unwrap();
     assert!(
         diags[0].message.starts_with("unknown unit `hz`"),
@@ -157,15 +157,15 @@ fn lexer_errors_are_reported() {
 fn positions_count_utf16_units() {
     let mut client = Client::new();
     // The comment holds a note (2 UTF-16 units) before the error.
-    client.open(&uri(), "// 🎵\nrill main() -> Sample { return nope }\n");
+    client.open(&uri(), "// 🎵\nrill main() Sample { return nope }\n");
     let diags = client.diagnostics(&uri()).unwrap();
-    let col = "rill main() -> Sample { return ".len() as u32;
+    let col = "rill main() Sample { return ".len() as u32;
     assert_eq!(diags[0].range.start, Position::new(1, col));
 
     let mut client = Client::new();
-    client.open(&uri(), "rill main() -> Sample { /*🎵*/ return nope }\n");
+    client.open(&uri(), "rill main() Sample { /*🎵*/ return nope }\n");
     let diags = client.diagnostics(&uri()).unwrap();
-    let col = "rill main() -> Sample { /*".len() as u32 + 2 + "*/ return ".len() as u32;
+    let col = "rill main() Sample { /*".len() as u32 + 2 + "*/ return ".len() as u32;
     assert_eq!(diags[0].range.start, Position::new(0, col));
 }
 
@@ -193,7 +193,7 @@ fn stdio_round_trip() {
             method: "textDocument/didOpen".into(),
             params: Some(json!({"textDocument": {
                 "uri": "file:///a.rill", "languageId": "rill", "version": 1,
-                "text": "rill main() -> Sample { return nope }"
+                "text": "rill main() Sample { return nope }"
             }})),
         }
         .into(),

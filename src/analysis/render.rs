@@ -34,7 +34,7 @@ fn render(sig: &Signature, keyword: &str, default: impl Fn(usize) -> Option<Stri
         }
         params.push((start, label.len()));
     }
-    label += &format!(") -> {}", sig.ret);
+    label += &format!(") {}", sig.ret);
     match sig.rate {
         (1, 1) => {}
         (1, d) => label += &format!(" @ rate / {d}"),
@@ -226,12 +226,12 @@ mod tests {
     #[test]
     fn user_signatures_keep_their_defaults() {
         let a = Analysis::new(
-            "rill crush<N>(x: [Sample; N], bits: Float = 8, hold: Time = 0.5ms) -> Sample @ rate / 2 { return x[0] }",
+            "rill crush<N>(x: [Sample; N], bits: Float = 8, hold: Time = 0.5ms) Sample @ rate / 2 { return x[0] }",
         );
         let r = a.render_def(0);
         assert_eq!(
             r.label,
-            "rill crush<N>(x: [Sample; N], bits: Float = 8, hold: Time = 0.5ms) -> Sample @ rate / 2"
+            "rill crush<N>(x: [Sample; N], bits: Float = 8, hold: Time = 0.5ms) Sample @ rate / 2"
         );
         let params: Vec<&str> = r.params.iter().map(|&(s, e)| &r.label[s..e]).collect();
         assert_eq!(
@@ -245,12 +245,12 @@ mod tests {
         let equal = builtin("equal");
         assert_eq!(
             equal[0].label,
-            "fn equal(pitch: Pitch, steps: Int = 12, a4: Freq = 440Hz) -> Freq"
+            "fn equal(pitch: Pitch, steps: Int = 12, a4: Freq = 440Hz) Freq"
         );
         let min: Vec<String> = builtin("min").into_iter().map(|r| r.label).collect();
         assert_eq!(
             min,
-            ["fn min<N>(x: [T; N]) -> T", "fn min(a: S, b: S) -> S"]
+            ["fn min<N>(x: [T; N]) T", "fn min(a: S, b: S) S"]
         );
         assert!(
             type_params_note(&builtins::lookup("min"))

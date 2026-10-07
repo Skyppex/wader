@@ -7,12 +7,12 @@ use wader::lsp::{self, request as r};
 
 const SRC: &str = "\
 // 🎵 a note before anything, to shift UTF-16 columns on this line only
-rill osc(freq: Freq) -> Sample {
+rill osc(freq: Freq) Sample {
     state phase: Float = 0
     phase = wrap(phase + freq / RATE)
     return sin(phase * TAU)
 }
-rill main() -> Sample {
+rill main() Sample {
     let /*🎵*/ f = 440Hz
     return osc(freq: f) + $osc(f)
 }

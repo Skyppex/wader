@@ -255,7 +255,7 @@ mod tests {
     const SRC: &str = "\
 // Turns a frequency into a sine.
 // Smooth.
-rill osc(freq: Freq, gain: Gain = -6dB) -> Sample {
+rill osc(freq: Freq, gain: Gain = -6dB) Sample {
     // Where in the cycle we are.
     state phase: Float = 0
     phase = wrap(phase + freq / RATE)
@@ -273,7 +273,7 @@ rill osc(freq: Freq, gain: Gain = -6dB) -> Sample {
     fn definitions_show_signature_and_doc() {
         assert_eq!(
             at("osc").unwrap(),
-            "```rill\nrill osc(freq: Freq, gain: Gain = -6dB) -> Sample\n```\n\nTurns a frequency into a sine.\nSmooth."
+            "```rill\nrill osc(freq: Freq, gain: Gain = -6dB) Sample\n```\n\nTurns a frequency into a sine.\nSmooth."
         );
     }
 
@@ -298,7 +298,7 @@ rill osc(freq: Freq, gain: Gain = -6dB) -> Sample {
     fn builtins_constants_notes_types() {
         let sin = at("sin(").unwrap();
         assert!(
-            sin.starts_with("```rill\nfn sin(x: T) -> T\n```\n\nSine of `x`"),
+            sin.starts_with("```rill\nfn sin(x: T) T\n```\n\nSine of `x`"),
             "{sin}"
         );
         assert!(sin.contains("`T` is a plain number"), "{sin}");
@@ -337,7 +337,7 @@ rill osc(freq: Freq, gain: Gain = -6dB) -> Sample {
     fn levels_subtracted_from_a_signal() {
         let h = |line: &str| {
             hover(&format!(
-                "rill main(voice: Sample, g: Gain) -> Sample {{\n    {line}\n}}"
+                "rill main(voice: Sample, g: Gain) Sample {{\n    {line}\n}}"
             ))
             .unwrap()
         };
@@ -367,7 +367,7 @@ rill osc(freq: Freq, gain: Gain = -6dB) -> Sample {
     #[test]
     fn named_arguments_of_builtins() {
         let h =
-            hover("rill main() -> Sample { return sin(equal(A4, a$4: 432Hz) / RATE) }").unwrap();
+            hover("rill main() Sample { return sin(equal(A4, a$4: 432Hz) / RATE) }").unwrap();
         assert_eq!(
             h,
             "```rill\na4: Freq = 440Hz\n```\n\nparameter of built-in `equal`"
@@ -377,7 +377,7 @@ rill osc(freq: Freq, gain: Gain = -6dB) -> Sample {
     #[test]
     fn broken_text() {
         let h = hover(
-            "rill main(gain: Float) -> Sample {\n    let x = sin(1) * ga$in\n    let y = (x +\n",
+            "rill main(gain: Float) Sample {\n    let x = sin(1) * ga$in\n    let y = (x +\n",
         )
         .unwrap();
         assert!(h.starts_with("```rill\ngain: Float\n```"), "{h}");
