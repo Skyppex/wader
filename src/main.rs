@@ -1,68 +1,125 @@
 //! `wader` serves LSP over stdio. The other commands run the same server
 //! in-process on one file and print what an editor would show.
 
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+use clap::{Parser, Subcommand};
 
 use wader::client::{Client, editor_capabilities};
 use wader::lsp::{self, request as r};
 
-const USAGE: &str = "\
-usage: wader [--stdio]                      serve LSP over stdin/stdout
-       wader check FILE...                  print diagnostics
-       wader hover FILE LINE:COL            hover text at a position
-       wader sig FILE LINE:COL              signature help
-       wader complete FILE LINE:COL         completion items
-       wader def FILE LINE:COL              go to definition
-       wader decl FILE LINE:COL             go to declaration
-       wader refs FILE LINE:COL             find references (with the declaration)
-       wader prepare-rename FILE LINE:COL   what a rename would change
-       wader rename FILE LINE:COL NEW_NAME  print the file with the rename applied
+#[derive(Parser)]
+#[command(
+    version,
+    about = "A language server for Rill",
+    args_conflicts_with_subcommands = true,
+    after_help = "With no command, serves LSP over stdin/stdout.\n\
+                  LINE and COL start at 1; COL counts characters."
+)]
+struct Cli {
+    /// Serve LSP over stdin/stdout (the default; accepted since editors pass it).
+    #[arg(long)]
+    stdio: bool,
+    #[command(subcommand)]
+    command: Option<Command>,
+}
 
-LINE and COL start at 1; COL counts characters.";
+#[derive(Subcommand)]
+enum Command {
+    /// Serve LSP over stdin/stdout.
+    Serve,
+    /// Print diagnostics; exits with 1 if there are errors.
+    Check {
+        /// Rill source files.
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+    },
+    /// Hover text at a position.
+    Hover(At),
+    /// Signature help; «» marks the active parameter.
+    Sig(At),
+    /// Completion items.
+    Complete(At),
+    /// Go to definition.
+    Def(At),
+    /// Go to declaration.
+    Decl(At),
+    /// Find references, including the declaration.
+    Refs(At),
+    /// What a rename would change.
+    PrepareRename(At),
+    /// Print the file with the rename applied.
+    Rename {
+        #[command(flatten)]
+        at: At,
+        /// What to call it instead.
+        new_name: String,
+    },
+}
+
+/// A position in a file.
+#[derive(clap::Args)]
+struct At {
+    /// Rill source file.
+    file: PathBuf,
+    /// LINE:COL, both starting at 1.
+    #[arg(value_name = "LINE:COL", value_parser = parse_position)]
+    position: lsp::Position,
+}
+
+fn parse_position(arg: &str) -> Result<lsp::Position, String> {
+    let parse = |s: &str| s.parse::<u32>().ok().filter(|&n| n > 0);
+    let (line, col) = arg
+        .split_once(':')
+        .and_then(|(l, c)| Some((parse(l)?, parse(c)?)))
+        .ok_or_else(|| format!("expected LINE:COL, both from 1, got `{arg}`"))?;
+    Ok(lsp::Position::new(line - 1, col - 1))
+}
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    match run(&args) {
+    let cli = Cli::parse();
+    match run(cli.command.unwrap_or(Command::Serve)) {
         Ok(code) => code,
         Err(msg) => {
-            eprintln!("error: {msg}\n\n{USAGE}");
+            eprintln!("error: {msg}");
             ExitCode::from(2)
         }
     }
 }
 
-fn run(args: &[&str]) -> Result<ExitCode, String> {
-    match args {
-        [] | ["--stdio"] | ["serve"] => {
+fn run(command: Command) -> Result<ExitCode, String> {
+    let at = match &command {
+        Command::Serve => {
             let stdin = std::io::stdin().lock();
             let stdout = std::io::stdout().lock();
             let code = wader::server::run(stdin, stdout).map_err(|e| e.to_string())?;
-            Ok(ExitCode::from(code as u8))
+            return Ok(ExitCode::from(code as u8));
         }
-        ["-h" | "--help" | "help"] => {
-            println!("{USAGE}");
-            Ok(ExitCode::SUCCESS)
-        }
-        ["check", files @ ..] if !files.is_empty() => check(files),
-        [cmd, file, pos, rest @ ..] => {
-            let mut s = Session::open(file)?;
-            let at = s.position(pos)?;
-            match (*cmd, rest) {
-                ("hover", []) => s.hover(at),
-                ("sig", []) => s.signature(at),
-                ("complete", []) => s.complete(at),
-                ("def", []) => s.locations::<r::GotoDefinition>(at),
-                ("decl", []) => s.locations::<r::GotoDeclaration>(at),
-                ("refs", []) => s.references(at),
-                ("prepare-rename", []) => s.prepare_rename(at),
-                ("rename", [name]) => s.rename(at, name),
-                _ => return Err(format!("bad arguments for `{cmd}`")),
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        _ => Err("bad arguments".into()),
+        Command::Check { files } => return check(files),
+        Command::Hover(at)
+        | Command::Sig(at)
+        | Command::Complete(at)
+        | Command::Def(at)
+        | Command::Decl(at)
+        | Command::Refs(at)
+        | Command::PrepareRename(at)
+        | Command::Rename { at, .. } => at,
+    };
+    let mut s = Session::open(&at.file)?;
+    let pos = at.position;
+    match &command {
+        Command::Hover(_) => s.hover(pos),
+        Command::Sig(_) => s.signature(pos),
+        Command::Complete(_) => s.complete(pos),
+        Command::Def(_) => s.locations::<r::GotoDefinition>(pos),
+        Command::Decl(_) => s.locations::<r::GotoDeclaration>(pos),
+        Command::Refs(_) => s.references(pos),
+        Command::PrepareRename(_) => s.prepare_rename(pos),
+        Command::Rename { new_name, .. } => s.rename(pos, new_name),
+        Command::Serve | Command::Check { .. } => unreachable!("handled above"),
     }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// A client with one file open, positions counted in characters.
@@ -81,33 +138,24 @@ fn client() -> Client {
     Client::with_capabilities(caps).0
 }
 
-fn uri_for(path: &str) -> lsp::Uri {
-    let abs =
-        std::fs::canonicalize(path).map_or_else(|_| path.to_owned(), |p| p.display().to_string());
-    lsp::Uri(format!("file://{abs}"))
+fn uri_for(path: &Path) -> lsp::Uri {
+    let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    lsp::Uri(format!("file://{}", abs.display()))
 }
 
 impl Session {
-    fn open(path: &str) -> Result<Session, String> {
-        let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    fn open(path: &Path) -> Result<Session, String> {
+        let shown = path.display().to_string();
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{shown}: {e}"))?;
         let mut client = client();
         let uri = uri_for(path);
         client.open(&uri, &text);
         Ok(Session {
             client,
-            path: path.to_owned(),
+            path: shown,
             uri,
             text,
         })
-    }
-
-    fn position(&self, arg: &str) -> Result<lsp::Position, String> {
-        let parse = |s: &str| s.parse::<u32>().ok().filter(|&n| n > 0);
-        let (line, col) = arg
-            .split_once(':')
-            .and_then(|(l, c)| Some((parse(l)?, parse(c)?)))
-            .ok_or_else(|| format!("expected LINE:COL, got `{arg}`"))?;
-        Ok(lsp::Position::new(line - 1, col - 1))
     }
 
     fn at(&self, position: lsp::Position) -> lsp::TextDocumentPositionParams {
@@ -293,10 +341,11 @@ impl Session {
     }
 }
 
-fn check(files: &[&str]) -> Result<ExitCode, String> {
+fn check(files: &[PathBuf]) -> Result<ExitCode, String> {
     let mut errors = 0;
-    for path in files {
-        let s = Session::open(path)?;
+    for file in files {
+        let s = Session::open(file)?;
+        let path = &s.path;
         let diags = s.client.diagnostics(&s.uri).unwrap_or_default();
         for d in &diags {
             let kind = match d.severity {
