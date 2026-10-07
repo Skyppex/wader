@@ -212,7 +212,7 @@ impl Analysis {
         let base = unit.to_base(value);
         let meaning = match unit {
             Unit::Hz | Unit::S | Unit::St => None,
-            Unit::KHz => Some(format!("= {} Hz", num(base))),
+            Unit::KHz | Unit::Bpm => Some(format!("= {} Hz", num(base))),
             Unit::Ms => Some(format!("= {} s", num(base))),
             Unit::Cents => Some(format!("= {} semitones", num(base))),
             Unit::Db => {

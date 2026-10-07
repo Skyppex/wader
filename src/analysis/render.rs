@@ -301,6 +301,7 @@ pub fn unit_doc(unit: &str) -> Option<&'static str> {
     Some(match unit {
         "Hz" => "hertz",
         "kHz" => "kilohertz",
+        "bpm" => "beats per minute: a tempo, which is a frequency (`120bpm` is `2Hz`)",
         "s" => "seconds",
         "ms" => "milliseconds",
         "st" => "semitones",
