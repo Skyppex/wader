@@ -1,6 +1,7 @@
 //! Hover: what the thing under the cursor is.
 
 use rill::lang::Span;
+use rill::lang::ast::{BinOp, Expr, ExprKind, UnOp};
 use rill::lang::builtins;
 use rill::lang::check::{BindingKind, pitch_literal};
 use rill::lang::lexer::{TokenKind, Unit};
@@ -44,21 +45,20 @@ impl Analysis {
         let contents = match token.kind {
             TokenKind::Number { value, unit, .. } => {
                 // `-6dB` lexes as `-` and `6dB`; describe it as written.
-                let negated = self
-                    .expr_at(offset)
-                    .zip(span.start.checked_sub(1).and_then(|o| self.expr_at(o)))
-                    .is_some_and(|(lit, outer)| {
-                        matches!(&outer.kind, rill::lang::ast::ExprKind::Unary(rill::lang::ast::UnOp::Neg, x) if x.id == lit.id)
-                    });
-                if negated {
-                    let outer = self.expr_at(span.start - 1)?;
-                    let contents = self.hover_number(offset, -value, unit)?;
-                    return Some(HoverInfo {
-                        contents,
-                        span: outer.span,
-                    });
-                }
-                self.hover_number(offset, value, unit)?
+                let lit = self.expr_at(offset);
+                let negated = lit.and_then(|lit| {
+                    let outer = self.parent_of(lit.id, offset)?;
+                    matches!(outer.kind, ExprKind::Unary(UnOp::Neg, _)).then_some(outer)
+                });
+                let (operand, value) = match negated {
+                    Some(outer) => (Some(outer), -value),
+                    None => (lit, value),
+                };
+                let contents = self.hover_number(offset, value, unit, operand)?;
+                return Some(HoverInfo {
+                    contents,
+                    span: operand.map_or(span, |e| e.span),
+                });
             }
             TokenKind::Ident => self.hover_builtin_arg(offset, span)?,
             TokenKind::Eof => return None,
@@ -143,7 +143,14 @@ impl Analysis {
         })
     }
 
-    fn hover_number(&self, offset: u32, value: f64, unit: Option<Unit>) -> Option<String> {
+    /// A number literal, as `operand` (the literal, or its negation).
+    fn hover_number(
+        &self,
+        offset: u32,
+        value: f64,
+        unit: Option<Unit>,
+        operand: Option<&Expr>,
+    ) -> Option<String> {
         let ty = self
             .expr_at(offset)
             .and_then(|e| self.checked.types.get(e.id as usize))
@@ -163,11 +170,46 @@ impl Analysis {
             Unit::KHz => Some(format!("= {} Hz", num(base))),
             Unit::Ms => Some(format!("= {} s", num(base))),
             Unit::Cents => Some(format!("= {} semitones", num(base))),
-            Unit::Db => Some(format!("= ×{} in amplitude", num(base))),
+            Unit::Db => {
+                // Subtracted from a signal, a level scales it the other way.
+                if let Some(e) = operand
+                    && self.subtracted_from_signal(e, offset)
+                {
+                    let applied = Unit::Db.to_base(-value);
+                    let alone = format!("{}dB", num(value));
+                    let line = format!(
+                        "Subtracted from a signal here: ×{} in amplitude\n\nOn its own, {alone} = ×{} in amplitude",
+                        num(applied),
+                        num(base)
+                    );
+                    Some(line)
+                } else {
+                    Some(format!("= ×{} in amplitude", num(base)))
+                }
+            }
         };
         let name = unit.name();
         let what = unit_doc(name).map(|d| format!("`{name}`: {d}"));
         Some(markdown(&ty.to_string(), [meaning, what]))
+    }
+
+    /// `e` is the right side of `x - e` where `x` is a signal, not a level.
+    fn subtracted_from_signal(&self, e: &Expr, offset: u32) -> bool {
+        let Some(parent) = self.parent_of(e.id, offset) else {
+            return false;
+        };
+        let ExprKind::Binary(BinOp::Sub, left, right) = &parent.kind else {
+            return false;
+        };
+        let left_ty = self.checked.types.get(left.id as usize);
+        right.id == e.id
+            && left_ty.is_some_and(|t| {
+                let elem = match t {
+                    Type::Frame(elem, _) => elem,
+                    t => t,
+                };
+                elem.is_plain()
+            })
     }
 
     /// The name of an argument to a built-in, as in `equal(E4, a4: 432Hz)`.
@@ -289,6 +331,37 @@ rill osc(freq: Freq, gain: Gain = -6dB) -> Sample {
         );
         assert_eq!(at("+ freq").unwrap(), "```rill\nFloat\n```");
         assert_eq!(at("// Smooth"), None);
+    }
+
+    #[test]
+    fn levels_subtracted_from_a_signal() {
+        let h = |line: &str| {
+            hover(&format!(
+                "rill main(voice: Sample, g: Gain) -> Sample {{\n    {line}\n}}"
+            ))
+            .unwrap()
+        };
+        let sub = h("return voice - $6dB");
+        assert!(
+            sub.contains("Subtracted from a signal here: ×0.5012 in amplitude"),
+            "{sub}"
+        );
+        assert!(
+            sub.contains("On its own, 6dB = ×1.9953 in amplitude"),
+            "{sub}"
+        );
+        // Subtracting a negative level raises the signal.
+        let neg = h("return voice - -$6dB");
+        assert!(neg.contains("here: ×1.9953"), "{neg}");
+        assert!(neg.contains("On its own, -6dB = ×0.5012"), "{neg}");
+        // Adding, or level arithmetic: the level as it is.
+        assert!(h("return voice + $6dB").contains("= ×1.9953 in amplitude"));
+        let levels = h("let x = g - $6dB\n    return voice + x");
+        assert!(levels.contains("= ×1.9953 in amplitude"), "{levels}");
+        assert!(!levels.contains("Subtracted"), "{levels}");
+        // Frames are signals too.
+        let frame = h("return [voice, voice] - $6dB");
+        assert!(frame.contains("here: ×0.5012"), "{frame}");
     }
 
     #[test]

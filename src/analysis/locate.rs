@@ -113,6 +113,37 @@ impl Analysis {
         found
     }
 
+    /// The expression directly containing the one with `id`, which is at
+    /// `offset`.
+    pub fn parent_of<'a>(&'a self, id: u32, offset: u32) -> Option<&'a Expr> {
+        let def = self.def(self.def_at(offset)?);
+        let mut parent: Option<&Expr> = None;
+        let mut visit = |e: &'a Expr| {
+            let mut children = Vec::new();
+            match &e.kind {
+                ExprKind::Unary(_, x) | ExprKind::Cast(x, _) | ExprKind::Field(x, _) => {
+                    children.push(x.id)
+                }
+                ExprKind::Binary(_, a, b) | ExprKind::Index(a, b) => children.extend([a.id, b.id]),
+                ExprKind::Call { args, .. } => children.extend(args.iter().map(|a| a.value.id)),
+                ExprKind::Frame(xs) => children.extend(xs.iter().map(|x| x.id)),
+                ExprKind::If { cond, els, .. } => {
+                    children.push(cond.id);
+                    children.extend(els.iter().map(|x| x.id));
+                }
+                _ => {}
+            }
+            if children.contains(&id) {
+                parent = Some(e);
+            }
+        };
+        for d in def.params.iter().filter_map(|p| p.default.as_ref()) {
+            walk_expr(d, &mut visit);
+        }
+        walk_block(&def.body, &mut visit);
+        parent
+    }
+
     /// The innermost call whose argument list contains `offset`, found in
     /// the syntax tree.
     pub fn call_at(&self, offset: u32) -> Option<CallSite<'_>> {
