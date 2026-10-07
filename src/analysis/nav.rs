@@ -60,6 +60,15 @@ rill main(freq: Freq = 440Hz) Sample {
     }
 
     #[test]
+    fn events_go_to_their_declaration() {
+        let src = "event keys note_on\nrill main() Sample {\n    on ke$ys { }\n    return 0\n}";
+        let (a, offset) = at(src);
+        let def = a.definition(offset).unwrap();
+        assert_eq!((def.start, a.slice(def)), (6, "keys"));
+        assert_eq!(texts(&a, &a.references(offset, true)).len(), 2);
+    }
+
+    #[test]
     fn definitions() {
         let (a, o) = at(&cursor("half(s)", 0));
         let def = a.definition(o).unwrap();

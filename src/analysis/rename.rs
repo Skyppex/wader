@@ -1,4 +1,4 @@
-//! Renaming fns, rills, parameters and variables.
+//! Renaming fns, rills, events, parameters and variables.
 
 use std::collections::HashMap;
 
@@ -21,8 +21,11 @@ impl Analysis {
         };
         let name = self.slice(occ.span).to_owned();
         let what = match &occ.target {
-            Target::Def(_) | Target::Binding(_) => return Ok(Some((occ.span, name))),
+            Target::Def(_) | Target::Binding(_) | Target::Event(_) => {
+                return Ok(Some((occ.span, name)));
+            }
             Target::Builtin(_) => "built-in function",
+            Target::EventKind(_) => "kind of event",
             Target::Constant(_) => "built-in constant",
             Target::Note(_) => "note name",
             Target::Type(_) => "built-in type",
@@ -195,6 +198,23 @@ rill main() Sample {
     }
 
     #[test]
+    fn events_rename_with_their_handlers() {
+        let src = "event keys note_on\nrill main() Sample {\n    on keys { }\n    return 0\n}\n";
+        let a = Analysis::new(src);
+        let offset = src.rfind("keys").unwrap() as u32;
+        let edits = a.rename(offset, "piano").unwrap();
+        assert_eq!(edits.len(), 2);
+        let e = a
+            .rename(src.find("note_on").unwrap() as u32, "x")
+            .unwrap_err();
+        assert_eq!(e.0, "`note_on` is a kind of event and cannot be renamed");
+        // A name already taken by another event is refused.
+        let src = "event keys note_on\nevent pads note_on\nrill main() Sample {\n    on keys { }\n    on pads { }\n    return 0\n}\n";
+        let a = Analysis::new(src);
+        assert!(a.rename(src.find("keys").unwrap() as u32, "pads").is_err());
+    }
+
+    #[test]
     fn refuses_what_cannot_be_renamed() {
         let e = rename(&cursor("wrap", 0), "x").unwrap_err();
         assert_eq!(e.0, "`wrap` is a built-in function and cannot be renamed");
@@ -229,7 +249,8 @@ rill main() Sample {
         assert!(rename(&cursor("osc", 0), "main").is_err());
         // A fn named like a note: calls still find the fn, but as a value
         // the name would be read as the note.
-        let src = "fn $tune(p: Pitch) Freq { equal(p) }\nrill main() Sample { return sin(A4 |> tune) }";
+        let src =
+            "fn $tune(p: Pitch) Freq { equal(p) }\nrill main() Sample { return sin(A4 |> tune) }";
         assert!(rename(src, "C4").unwrap().contains("|> C4"));
         let src = "fn $tune(p: Pitch) Freq { equal(p) }\nrill main() Sample {\n    let g = tune\n    return sin(A4 |> g / RATE)\n}";
         assert!(rename(src, "x").is_ok());

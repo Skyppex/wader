@@ -197,7 +197,10 @@ fn renaming_anything_in_the_examples_keeps_them_valid() {
                 occ.target,
                 after.diagnostics
             );
-            assert!(matches!(occ.target, Target::Def(_) | Target::Binding(_)));
+            assert!(matches!(
+                occ.target,
+                Target::Def(_) | Target::Binding(_) | Target::Event(_)
+            ));
         }
     }
     assert!(count > 50, "only {count} names renamed");

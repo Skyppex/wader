@@ -121,7 +121,7 @@ impl Analysis {
                     + (self.text[line_start..].len() - self.text[line_start..].trim_start().len());
                 (keyword_at as u32, b.scope.start)
             }
-            BindingKind::Size | BindingKind::FnParam => return None,
+            BindingKind::Size | BindingKind::FnParam | BindingKind::EventParam => return None,
         };
         docs::comment(&self.text, start, end)
     }
@@ -143,9 +143,85 @@ impl Analysis {
             BindingKind::Size => format!("<{}>", b.name),
             BindingKind::Let => format!("let {}: {}", b.name, b.ty),
             BindingKind::State => format!("state {}: {}", b.name, b.ty),
-            BindingKind::FnParam => format!("{}: {}", b.name, b.ty),
+            BindingKind::FnParam | BindingKind::EventParam => format!("{}: {}", b.name, b.ty),
         }
     }
+
+    /// An event declaration as code: `event keys note_on(channel: 1)`.
+    pub fn render_event(&self, index: usize) -> String {
+        let e = &self.program.events[index];
+        let mut out = format!("event {} {}", e.name.name, e.kind.name);
+        if !e.filters.is_empty() {
+            let filters: Vec<String> = e
+                .filters
+                .iter()
+                .map(|f| format!("{}: {}", f.name.name, self.slice(f.value.span)))
+                .collect();
+            out += &format!("({})", filters.join(", "));
+        }
+        out
+    }
+
+    /// The doc comment of the event declaration at `index`.
+    pub fn event_doc(&self, index: usize) -> Option<String> {
+        let e = &self.program.events[index];
+        docs::comment(&self.text, e.span.start, e.name.span.end)
+    }
+
+    /// The `on` handler whose payload parameter is declared at `span`.
+    pub fn handler_of(&self, b: &Binding) -> Option<&rill::lang::ast::Ident> {
+        let mut found = None;
+        find_handlers(&self.def(b.def).body, &mut |name, params| {
+            if params.first().is_some_and(|p| p.span == b.span) {
+                found = Some(name);
+            }
+        });
+        found
+    }
+}
+
+/// Call `f` with the event name and parameters of every `on` handler in
+/// `block`, nested ones included.
+pub fn find_handlers<'a>(
+    block: &'a rill::lang::ast::Block,
+    f: &mut impl FnMut(&'a rill::lang::ast::Ident, &'a [rill::lang::ast::Ident]),
+) {
+    use rill::lang::ast::{ExprKind, Stmt};
+    for stmt in &block.stmts {
+        if let Stmt::EventHandler {
+            name, params, body, ..
+        } = stmt
+        {
+            f(name, params);
+            find_handlers(body, f);
+        }
+    }
+    // Handlers can also sit in blocks inside expressions.
+    super::locate::walk_block(block, &mut |e| {
+        if let ExprKind::Block(b) | ExprKind::If { then: b, .. } = &e.kind {
+            for stmt in &b.stmts {
+                if let Stmt::EventHandler { name, params, .. } = stmt {
+                    f(name, params);
+                }
+            }
+        }
+    });
+}
+
+/// What an event kind is and what its handlers receive.
+pub fn event_kind_doc(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "note_on" => {
+            "A note starts. Handlers receive a `NoteOn`: `pitch: Pitch` and `velocity: Float` (0–1)."
+        }
+        "note_off" => {
+            "A note ends. Handlers receive a `NoteOff`: `pitch: Pitch` and `release: Float` (0–1), the release velocity."
+        }
+        "control_change" => {
+            "A control moves: a knob, fader, pedal, pitch bend or aftertouch, one per channel. Handlers receive its value as a `Float`, as the sender sent it."
+        }
+        _ => return None,
+    })
 }
 
 /// Every signature of the built-in `name`, defaults filled in.
@@ -179,6 +255,12 @@ pub fn type_doc(name: &str) -> Option<&'static str> {
         "Gain" => {
             "A level change, written in `dB`. `x + 6dB` makes `x` louder; any plain number is an amplitude factor."
         }
+        "NoteOn" => {
+            "What a `note_on` event's handler receives: `pitch: Pitch` and `velocity: Float` (0–1)."
+        }
+        "NoteOff" => {
+            "What a `note_off` event's handler receives: `pitch: Pitch` and `release: Float` (0–1), the release velocity."
+        }
         _ => return None,
     })
 }
@@ -203,6 +285,12 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
             "Chooses between two values; both branches have the same type. Without `else`, it produces nothing."
         }
         "as" => "Converts between `Sample`, `Float` and `Int`. Units never disappear by a cast.",
+        "event" => {
+            "Declares an event: a name, a kind (`note_on`, `note_off` or `control_change`) and optional filters, as in `event keys note_on(sender: 5, channel: 1)`. Handlers use the name."
+        }
+        "on" => {
+            "Handles a declared event, as in `on keys(note) { ... }`. The parameter is the event's payload, typed by its kind."
+        }
         "true" | "false" => "A `Bool`.",
         _ => return None,
     })
@@ -251,10 +339,7 @@ mod tests {
             "fn equal(pitch: Pitch, steps: Int = 12, a4: Freq = 440Hz) Freq"
         );
         let min: Vec<String> = builtin("min").into_iter().map(|r| r.label).collect();
-        assert_eq!(
-            min,
-            ["fn min<N>(x: [F; N]) F", "fn min(a: S, b: S) S"]
-        );
+        assert_eq!(min, ["fn min<N>(x: [F; N]) F", "fn min(a: S, b: S) S"]);
         assert!(
             type_params_note(&builtins::lookup("min"))
                 .unwrap()

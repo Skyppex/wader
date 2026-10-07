@@ -35,6 +35,12 @@ enum Context {
     Type,
     /// The unit of a number literal.
     Unit,
+    /// After `event NAME`: the kind.
+    EventKind,
+    /// Inside an event declaration's parentheses: a filter name.
+    EventFilter,
+    /// After `on`: a declared event.
+    EventName,
     /// After `|>`: something to call, with the type of what is piped in.
     Pipe(Option<Type>),
     Expr {
@@ -86,7 +92,13 @@ impl Analysis {
         let (replace, context) = self.completion_context(offset);
         let mut items = match context {
             Context::Nothing => Vec::new(),
-            Context::TopLevel => self.keyword_items(&["fn", "rill"], snippets),
+            Context::TopLevel => self.keyword_items(&["fn", "rill", "event"], snippets),
+            Context::EventKind => event_kind_items(),
+            Context::EventFilter => ["sender", "channel"]
+                .iter()
+                .map(|f| item(f, Kind::Property, Some("filter".into()), None, 0))
+                .collect(),
+            Context::EventName => self.event_name_items(),
             Context::Type => self.type_items(offset),
             Context::Unit => unit_items(),
             Context::Pipe(piped) => self.callable_items(offset, piped.as_ref()),
@@ -98,7 +110,7 @@ impl Analysis {
                 if stmt_start {
                     keywords.extend(["let", "return"]);
                     if self.in_rill_body(offset) {
-                        keywords.push("state");
+                        keywords.extend(["state", "on"]);
                     }
                 }
                 items.extend(self.keyword_items(&keywords, snippets));
@@ -145,8 +157,32 @@ impl Analysis {
             _ => (here, i),
         };
         let prev = before.checked_sub(1).map(|j| &self.tokens[j]);
+        let prev2 = before.checked_sub(2).map(|j| &self.tokens[j]);
         let prev3 = before.checked_sub(3).map(|j| &self.tokens[j]);
         let kind = |t: Option<&Token>| t.map(|t| t.kind);
+
+        let word = |t: Option<&Token>, w: &str| {
+            t.is_some_and(|t| t.kind == TokenKind::Ident && self.slice(t.span) == w)
+        };
+        // `event` is only a keyword at the start of a line.
+        let starts_line = |t: Option<&Token>| t.is_some_and(|t| t.newline_before);
+        if word(prev, "event") && (starts_line(prev) || before == 1) {
+            return (replace, Context::Nothing);
+        }
+        if word(prev2, "event")
+            && (starts_line(prev2) || before == 2)
+            && kind(prev) == Some(TokenKind::Ident)
+        {
+            return (replace, Context::EventKind);
+        }
+        if word(prev, "on") {
+            return (replace, Context::EventName);
+        }
+        if matches!(kind(prev), Some(TokenKind::LParen | TokenKind::Comma))
+            && self.in_event_filters(before - 1)
+        {
+            return (replace, Context::EventFilter);
+        }
 
         let context = match kind(prev) {
             // Naming something new.
@@ -236,6 +272,47 @@ impl Analysis {
             }
         }
         false
+    }
+
+    /// Is token `i` inside the filters of an event declaration, as in
+    /// `event keys note_on(sender: 5, |`?
+    fn in_event_filters(&self, i: usize) -> bool {
+        let mut depth = 0;
+        for j in (0..=i).rev() {
+            match self.tokens[j].kind {
+                TokenKind::RParen => depth += 1,
+                TokenKind::LParen if depth == 0 => {
+                    let k = |n: usize| j.checked_sub(n).map(|i| &self.tokens[i]);
+                    return k(3).is_some_and(|t| {
+                        t.kind == TokenKind::Ident && self.slice(t.span) == "event"
+                    }) && matches!(k(2).map(|t| t.kind), Some(TokenKind::Ident))
+                        && matches!(k(1).map(|t| t.kind), Some(TokenKind::Ident));
+                }
+                TokenKind::LParen => depth -= 1,
+                TokenKind::LBrace | TokenKind::RBrace => return false,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// The program's declared events.
+    fn event_name_items(&self) -> Vec<CompletionItem> {
+        self.checked
+            .events
+            .iter()
+            .enumerate()
+            .filter_map(|(i, d)| {
+                let d = d.as_ref()?;
+                Some(item(
+                    &d.name,
+                    Kind::Event,
+                    Some(self.render_event(i)),
+                    self.event_doc(i),
+                    0,
+                ))
+            })
+            .collect()
     }
 
     /// Does the `[` at token `i` start a frame type? It does after `:` or
@@ -527,6 +604,8 @@ impl Analysis {
                     "rill" => Some("rill ${1:name}($2) ${3:Sample} {\n\t$0\n}"),
                     "fn" => Some("fn ${1:name}($2) ${3:Sample} {\n\t$0\n}"),
                     "if" => Some("if $1 {\n\t$0\n}"),
+                    "event" => Some("event ${1:name} ${2|note_on,note_off,control_change|}"),
+                    "on" => Some("on ${1:event}(${2:note}) {\n\t$0\n}"),
                     _ => None,
                 };
                 let mut it = item(k, Kind::Keyword, None, keyword_doc(k).map(str::to_owned), 4);
@@ -539,6 +618,21 @@ impl Analysis {
             })
             .collect()
     }
+}
+
+fn event_kind_items() -> Vec<CompletionItem> {
+    rill::event::EventKind::ALL
+        .iter()
+        .map(|k| {
+            item(
+                k.name(),
+                Kind::Keyword,
+                None,
+                render::event_kind_doc(k.name()).map(str::to_owned),
+                0,
+            )
+        })
+        .collect()
 }
 
 fn unit_items() -> Vec<CompletionItem> {
@@ -632,7 +726,10 @@ mod tests {
             &["Sample"],
         );
         has(&format!("{HEAD}rill f(x: fn(Pitch) $"), &["Freq"]);
-        lacks(&format!("{HEAD}rill f() Sample {{\n    return sin(1) $"), &["Sample"]);
+        lacks(
+            &format!("{HEAD}rill f() Sample {{\n    return sin(1) $"),
+            &["Sample"],
+        );
         has(
             &format!("{HEAD}rill f() Sample {{\n    let a: F$\n"),
             &["Float", "Freq"],
@@ -682,9 +779,33 @@ mod tests {
     }
 
     #[test]
+    fn events() {
+        let decls = "event keys note_on(sender: 1)\nevent knob control_change\n";
+        // The kind after the name.
+        has("event keys $", &["note_on", "note_off", "control_change"]);
+        has("event keys note_o$", &["note_on", "note_off"]);
+        assert!(labels("event $").is_empty(), "naming the event");
+        // Filters inside the parentheses.
+        assert_eq!(labels("event keys note_on($"), ["channel", "sender"]);
+        assert_eq!(
+            labels("event keys note_on(sender: 1, $"),
+            ["channel", "sender"]
+        );
+        lacks("rill main() Sample { return sin($", &["sender"]);
+        // Declared events after `on`.
+        assert_eq!(
+            labels(&format!("{decls}rill main() Sample {{\n    on $")),
+            ["keys", "knob"]
+        );
+        // `on` starts statements in rills only.
+        has(&format!("{HEAD}rill main() Sample {{\n    $\n}}"), &["on"]);
+        lacks(&format!("{HEAD}fn f() Sample {{\n    $\n}}"), &["on"]);
+    }
+
+    #[test]
     fn top_level() {
         let got = labels(&format!("{HEAD}\n$"));
-        assert_eq!(got, ["fn", "rill"]);
+        assert_eq!(got, ["event", "fn", "rill"]);
         let c = complete(&format!("{HEAD}\nri$"));
         let rill = c.items.iter().find(|i| i.label == "rill").unwrap();
         assert_eq!(rill.insert_text_format, Some(InsertTextFormat::Snippet));

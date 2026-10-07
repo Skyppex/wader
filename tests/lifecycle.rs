@@ -135,10 +135,7 @@ fn diagnostics_follow_edits() {
 #[test]
 fn library_files_without_main_are_fine() {
     let mut client = Client::new();
-    client.open(
-        &uri(),
-        "fn half(x: Sample) Sample {\n    return x / 2\n}\n",
-    );
+    client.open(&uri(), "fn half(x: Sample) Sample {\n    return x / 2\n}\n");
     assert_eq!(client.diagnostics(&uri()), Some(vec![]));
 }
 

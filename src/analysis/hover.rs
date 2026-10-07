@@ -60,6 +60,9 @@ impl Analysis {
                     span: operand.map_or(span, |e| e.span),
                 });
             }
+            TokenKind::Ident if self.is_event_keyword(span) => {
+                keyword_doc(self.slice(span))?.to_owned()
+            }
             TokenKind::Ident => self.hover_builtin_arg(offset, span)?,
             TokenKind::Eof => return None,
             TokenKind::Fn
@@ -88,6 +91,25 @@ impl Analysis {
         Some(HoverInfo { contents, span })
     }
 
+    /// `event` starting a declaration, or `on` starting a handler. Both are
+    /// ordinary names elsewhere.
+    fn is_event_keyword(&self, span: Span) -> bool {
+        match self.slice(span) {
+            "event" => self
+                .program
+                .events
+                .iter()
+                .any(|e| e.span.start == span.start),
+            "on" => {
+                let next = self.tokens.iter().find(|t| t.span.start > span.start);
+                next.is_some_and(|t| {
+                    matches!(self.index.at(t.span.start), Some(o) if matches!(o.target, Target::Event(_)))
+                })
+            }
+            _ => false,
+        }
+    }
+
     fn hover_name(&self, occ: &Occurrence) -> Option<HoverInfo> {
         let contents = match &occ.target {
             Target::Def(i) => markdown(&self.render_def(*i).label, [self.def_doc(*i)]),
@@ -105,9 +127,19 @@ impl Analysis {
                         Some(format!("{what} of {kind} `{}`", def.name.name))
                     }
                     BindingKind::FnParam => Some("parameter of an anonymous fn".into()),
+                    BindingKind::EventParam => self
+                        .handler_of(b)
+                        .map(|name| format!("the payload of event `{}`", name.name)),
                     BindingKind::Let | BindingKind::State => None,
                 };
-                markdown(&self.render_binding(b), [owner, self.binding_doc(b)])
+                let payload = match b.kind {
+                    BindingKind::EventParam => type_doc(&b.ty.to_string()).map(str::to_owned),
+                    _ => None,
+                };
+                markdown(
+                    &self.render_binding(b),
+                    [owner, payload, self.binding_doc(b)],
+                )
             }
             Target::Builtin(name) => {
                 let code: Vec<String> =
@@ -136,6 +168,19 @@ impl Analysis {
                 )
             }
             Target::Type(name) => markdown(name, [type_doc(name).map(str::to_owned)]),
+            Target::Event(i) => {
+                let kind = self.checked.events.get(*i)?.as_ref()?.kind.name();
+                markdown(
+                    &self.render_event(*i),
+                    [
+                        self.event_doc(*i),
+                        render::event_kind_doc(kind).map(str::to_owned),
+                    ],
+                )
+            }
+            Target::EventKind(name) => {
+                markdown(name, [render::event_kind_doc(name).map(str::to_owned)])
+            }
         };
         Some(HoverInfo {
             contents,
@@ -270,6 +315,45 @@ rill osc(freq: Freq, gain: Gain = -6dB) Sample {
     }
 
     #[test]
+    fn events() {
+        let src = |cursor_in: &str| {
+            "// The keyboard on the left.\nevent keys note_on(sender: 5, channel: 1)\nevent knob control_change\nrill main() Sample {\n    state x: Float = 0\n    on keys(note) { x = note.velocity }\n    on knob(v) { x = v }\n    return 0\n}"
+                .replacen(cursor_in, &format!("${cursor_in}"), 1)
+        };
+        // The declaration, from its name or from a handler.
+        let decl = "```rill\nevent keys note_on(sender: 5, channel: 1)\n```\n\nThe keyboard on the left.\n\nA note starts.";
+        assert!(hover(&src("keys note_on")).unwrap().starts_with(decl));
+        assert!(hover(&src("keys(note)")).unwrap().starts_with(decl));
+        // The kind.
+        assert!(
+            hover(&src("note_on"))
+                .unwrap()
+                .starts_with("```rill\nnote_on\n```\n\nA note starts.")
+        );
+        // The payload.
+        assert_eq!(
+            hover(&src("note)")).unwrap(),
+            "```rill\nnote: NoteOn\n```\n\nthe payload of event `keys`\n\nWhat a `note_on` event's handler receives: `pitch: Pitch` and `velocity: Float` (0–1)."
+        );
+        assert!(
+            hover(&src("v)"))
+                .unwrap()
+                .starts_with("```rill\nv: Float\n```\n\nthe payload of event `knob`")
+        );
+        // The keywords.
+        assert!(
+            hover(&src("event keys"))
+                .unwrap()
+                .starts_with("Declares an event")
+        );
+        assert!(
+            hover(&src("on keys"))
+                .unwrap()
+                .starts_with("Handles a declared event")
+        );
+    }
+
+    #[test]
     fn definitions_show_signature_and_doc() {
         assert_eq!(
             at("osc").unwrap(),
@@ -366,8 +450,7 @@ rill osc(freq: Freq, gain: Gain = -6dB) Sample {
 
     #[test]
     fn named_arguments_of_builtins() {
-        let h =
-            hover("rill main() Sample { return sin(equal(A4, a$4: 432Hz) / RATE) }").unwrap();
+        let h = hover("rill main() Sample { return sin(equal(A4, a$4: 432Hz) / RATE) }").unwrap();
         assert_eq!(
             h,
             "```rill\na4: Freq = 440Hz\n```\n\nparameter of built-in `equal`"

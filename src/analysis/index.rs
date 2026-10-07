@@ -17,12 +17,16 @@ pub enum Target {
     Note(String),
     /// A built-in type like `Sample`.
     Type(String),
+    /// A declared event, by index into the program's event declarations.
+    Event(usize),
+    /// An event kind like `note_on`, in a declaration.
+    EventKind(String),
 }
 
 impl Target {
     /// Declared in the document, so it can be renamed and jumped to.
     pub fn is_user(&self) -> bool {
-        matches!(self, Target::Def(_) | Target::Binding(_))
+        matches!(self, Target::Def(_) | Target::Binding(_) | Target::Event(_))
     }
 }
 
@@ -52,6 +56,20 @@ impl Index {
                 is_decl: true,
             });
         }
+        for (i, e) in program.events.iter().enumerate() {
+            occurrences.push(Occurrence {
+                span: e.name.span,
+                target: Target::Event(i),
+                is_decl: true,
+            });
+            if checked.events.get(i).is_some_and(Option::is_some) {
+                occurrences.push(Occurrence {
+                    span: e.kind.span,
+                    target: Target::EventKind(e.kind.name.clone()),
+                    is_decl: false,
+                });
+            }
+        }
         for (id, b) in checked.bindings.iter().enumerate() {
             occurrences.push(Occurrence {
                 span: b.span,
@@ -73,6 +91,7 @@ impl Index {
                 Resolution::Constant(n) => Target::Constant(n.clone()),
                 Resolution::Note => Target::Note(name()),
                 Resolution::Type => Target::Type(name()),
+                Resolution::Event(i) => Target::Event(*i),
             };
             occurrences.push(Occurrence {
                 span,
