@@ -245,7 +245,7 @@ rill clip(x: Sample, drive: Float = 2, // how hard
         let (label, p) = help(&src("max($a)")).unwrap();
         assert_eq!(
             (label.as_str(), p.as_deref()),
-            ("fn max<N>(x: [T; N]) T", Some("x: [T; N]"))
+            ("fn max<N>(x: [F; N]) F", Some("x: [F; N]"))
         );
         let (label, p) = help(&src("max(a, $a)")).unwrap();
         assert_eq!(

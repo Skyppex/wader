@@ -74,6 +74,9 @@ pub fn type_params_note(sigs: &[Signature]) -> Option<String> {
     if uses("S") {
         notes.push("`S` is any number, with or without a unit, or a `Pitch`.");
     }
+    if uses("F") {
+        notes.push("`F` is a plain number, or a frame of them.");
+    }
     (!notes.is_empty()).then(|| notes.join(" "))
 }
 
@@ -250,12 +253,17 @@ mod tests {
         let min: Vec<String> = builtin("min").into_iter().map(|r| r.label).collect();
         assert_eq!(
             min,
-            ["fn min<N>(x: [T; N]) T", "fn min(a: S, b: S) S"]
+            ["fn min<N>(x: [F; N]) F", "fn min(a: S, b: S) S"]
         );
         assert!(
             type_params_note(&builtins::lookup("min"))
                 .unwrap()
                 .contains("`S`")
+        );
+        assert!(
+            type_params_note(&builtins::lookup("sum"))
+                .unwrap()
+                .contains("`F` is a plain number, or a frame of them")
         );
         assert_eq!(type_params_note(&builtins::lookup("decay")), None);
     }

@@ -145,7 +145,6 @@ impl Analysis {
             _ => (here, i),
         };
         let prev = before.checked_sub(1).map(|j| &self.tokens[j]);
-        let prev2 = before.checked_sub(2).map(|j| &self.tokens[j]);
         let prev3 = before.checked_sub(3).map(|j| &self.tokens[j]);
         let kind = |t: Option<&Token>| t.map(|t| t.kind);
 
@@ -161,13 +160,7 @@ impl Analysis {
             Some(TokenKind::As) => Context::Type,
             // The return type, right after the parameter list.
             Some(TokenKind::RParen) if self.in_param_list(before - 1) => Context::Type,
-            Some(TokenKind::LBracket)
-                if kind(prev2) == Some(TokenKind::Colon)
-                    || (kind(prev2) == Some(TokenKind::RParen)
-                        && self.in_param_list(before - 2)) =>
-            {
-                Context::Type
-            }
+            Some(TokenKind::LBracket) if self.opens_frame_type(before - 1) => Context::Type,
             Some(TokenKind::Colon) => {
                 let let_like = matches!(kind(prev3), Some(TokenKind::Let | TokenKind::State));
                 if let_like || self.in_param_list(before - 2) {
@@ -243,6 +236,20 @@ impl Analysis {
             }
         }
         false
+    }
+
+    /// Does the `[` at token `i` start a frame type? It does after `:` or
+    /// a parameter list, and inside another frame type (`[[Sample; 2]; 4]`).
+    fn opens_frame_type(&self, i: usize) -> bool {
+        let mut j = i;
+        while j > 0 && self.tokens[j - 1].kind == TokenKind::LBracket {
+            j -= 1;
+        }
+        match j.checked_sub(1).map(|k| self.tokens[k].kind) {
+            Some(TokenKind::Colon) => true,
+            Some(TokenKind::RParen) => self.in_param_list(j - 1),
+            _ => false,
+        }
     }
 
     fn in_def_signature(&self, offset: u32) -> bool {
@@ -618,6 +625,12 @@ mod tests {
         has(&format!("{HEAD}rill f(x: $"), &["Sample", "Freq", "Gain"]);
         has(&format!("{HEAD}rill f(x: Sample) $"), &["Sample"]);
         has(&format!("{HEAD}rill f(x: Sample) [$"), &["Sample"]);
+        has(&format!("{HEAD}rill f(x: [[S$"), &["Sample"]);
+        has(&format!("{HEAD}rill f() [[$"), &["Sample"]);
+        lacks(
+            &format!("{HEAD}rill f() Sample {{\n    let a = [[$"),
+            &["Sample"],
+        );
         has(&format!("{HEAD}rill f(x: fn(Pitch) $"), &["Freq"]);
         lacks(&format!("{HEAD}rill f() Sample {{\n    return sin(1) $"), &["Sample"]);
         has(
