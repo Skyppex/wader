@@ -81,7 +81,10 @@ mod tests {
 
     #[test]
     fn int_enums_are_numbers() {
-        assert_eq!(serde_json::to_value(DiagnosticSeverity::Warning).unwrap(), json!(2));
+        assert_eq!(
+            serde_json::to_value(DiagnosticSeverity::Warning).unwrap(),
+            json!(2)
+        );
         assert_eq!(
             serde_json::from_value::<CompletionItemKind>(json!(14)).unwrap(),
             CompletionItemKind::Keyword
@@ -95,7 +98,10 @@ mod tests {
             hover_provider: Some(true),
             ..Default::default()
         };
-        assert_eq!(serde_json::to_value(caps).unwrap(), json!({"hoverProvider": true}));
+        assert_eq!(
+            serde_json::to_value(caps).unwrap(),
+            json!({"hoverProvider": true})
+        );
     }
 
     #[test]
@@ -115,7 +121,10 @@ mod tests {
         }))
         .unwrap();
         let general = p.capabilities.general.unwrap();
-        assert_eq!(general.position_encodings.unwrap()[0], PositionEncodingKind::utf8());
+        assert_eq!(
+            general.position_encodings.unwrap()[0],
+            PositionEncodingKind::utf8()
+        );
         let td = p.capabilities.text_document.unwrap();
         assert_eq!(td.rename.unwrap().prepare_support, Some(true));
 

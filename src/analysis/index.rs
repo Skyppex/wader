@@ -98,7 +98,10 @@ impl Index {
     }
 
     /// Every appearance of `target`, in order.
-    pub fn occurrences_of<'a>(&'a self, target: &'a Target) -> impl Iterator<Item = &'a Occurrence> {
+    pub fn occurrences_of<'a>(
+        &'a self,
+        target: &'a Target,
+    ) -> impl Iterator<Item = &'a Occurrence> {
         self.occurrences.iter().filter(move |o| o.target == *target)
     }
 

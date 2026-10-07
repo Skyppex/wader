@@ -27,7 +27,10 @@ fn requests_before_initialize_are_refused() {
     let [Message::Response(resp)] = &out[..] else {
         panic!("{out:?}")
     };
-    assert_eq!(resp.error.as_ref().unwrap().code, ErrorCode::SERVER_NOT_INITIALIZED);
+    assert_eq!(
+        resp.error.as_ref().unwrap().code,
+        ErrorCode::SERVER_NOT_INITIALIZED
+    );
 }
 
 #[test]
@@ -35,8 +38,14 @@ fn initialize_announces_capabilities() {
     let (client, result) = Client::with_capabilities(wader::client::editor_capabilities());
     assert_eq!(result.server_info.unwrap().name, "wader");
     let caps = result.capabilities;
-    assert_eq!(caps.position_encoding, Some(lsp::PositionEncodingKind::utf16()));
-    assert_eq!(caps.text_document_sync.unwrap().change, lsp::TextDocumentSyncKind::Full);
+    assert_eq!(
+        caps.position_encoding,
+        Some(lsp::PositionEncodingKind::utf16())
+    );
+    assert_eq!(
+        caps.text_document_sync.unwrap().change,
+        lsp::TextDocumentSyncKind::Full
+    );
     assert_eq!(client.shutdown(), 0);
 }
 
@@ -52,13 +61,18 @@ fn utf8_is_preferred_when_offered() {
         ..Default::default()
     };
     let (_, result) = Client::with_capabilities(caps);
-    assert_eq!(result.capabilities.position_encoding, Some(lsp::PositionEncodingKind::utf8()));
+    assert_eq!(
+        result.capabilities.position_encoding,
+        Some(lsp::PositionEncodingKind::utf8())
+    );
 }
 
 #[test]
 fn unknown_methods_and_bad_params() {
     let mut client = Client::new();
-    let e = client.request_raw("textDocument/nope", json!({})).unwrap_err();
+    let e = client
+        .request_raw("textDocument/nope", json!({}))
+        .unwrap_err();
     assert_eq!(e.code, ErrorCode::METHOD_NOT_FOUND);
     let e = client
         .request_raw("textDocument/hover", json!({"position": 3}))
@@ -106,7 +120,11 @@ fn diagnostics_follow_edits() {
     assert_eq!(d.range.start, Position::new(1, 11));
     assert_eq!(d.range.end, Position::new(1, 15));
     assert!(d.message.contains("sine"), "{}", d.message);
-    assert!(d.message.contains("help: did you mean `sin`?"), "{}", d.message);
+    assert!(
+        d.message.contains("help: did you mean `sin`?"),
+        "{}",
+        d.message
+    );
 
     client.notify::<lsp::notification::DidCloseTextDocument>(lsp::DidCloseTextDocumentParams {
         text_document: lsp::TextDocumentIdentifier { uri: uri() },
@@ -117,7 +135,10 @@ fn diagnostics_follow_edits() {
 #[test]
 fn library_files_without_main_are_fine() {
     let mut client = Client::new();
-    client.open(&uri(), "fn half(x: Sample) -> Sample {\n    return x / 2\n}\n");
+    client.open(
+        &uri(),
+        "fn half(x: Sample) -> Sample {\n    return x / 2\n}\n",
+    );
     assert_eq!(client.diagnostics(&uri()), Some(vec![]));
 }
 
@@ -126,7 +147,10 @@ fn lexer_errors_are_reported() {
     let mut client = Client::new();
     client.open(&uri(), "rill main() -> Sample {\n    return 440hz\n}\n");
     let diags = client.diagnostics(&uri()).unwrap();
-    assert!(diags[0].message.starts_with("unknown unit `hz`"), "{diags:?}");
+    assert!(
+        diags[0].message.starts_with("unknown unit `hz`"),
+        "{diags:?}"
+    );
 }
 
 #[test]

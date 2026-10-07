@@ -2,6 +2,8 @@
 //! text: every offset of every example, and the end of every prefix of
 //! them (what an editor sees while the file is typed).
 
+mod common;
+
 use wader::analysis::Analysis;
 
 fn every_feature(a: &Analysis, offset: u32) {
@@ -16,7 +18,7 @@ fn every_feature(a: &Analysis, offset: u32) {
 }
 
 fn examples() -> Vec<(String, String)> {
-    std::fs::read_dir("../examples")
+    std::fs::read_dir(common::examples_dir())
         .unwrap()
         .map(|e| {
             let path = e.unwrap().path();
@@ -40,7 +42,9 @@ fn every_offset_of_every_example() {
 #[test]
 fn while_typing() {
     for (_, text) in examples() {
-        let cuts = (0..=text.len()).filter(|&i| text.is_char_boundary(i)).step_by(3);
+        let cuts = (0..=text.len())
+            .filter(|&i| text.is_char_boundary(i))
+            .step_by(3);
         for cut in cuts {
             let prefix = &text[..cut];
             let a = Analysis::new(prefix);

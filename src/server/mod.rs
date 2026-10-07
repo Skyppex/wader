@@ -39,7 +39,11 @@ pub struct ClientSupport {
 
 impl ClientSupport {
     fn from_params(params: &InitializeParams) -> ClientSupport {
-        let td = params.capabilities.text_document.clone().unwrap_or_default();
+        let td = params
+            .capabilities
+            .text_document
+            .clone()
+            .unwrap_or_default();
         let markdown = |formats: Option<Vec<MarkupKind>>| {
             formats.is_none_or(|f| f.contains(&MarkupKind::Markdown))
         };

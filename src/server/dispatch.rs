@@ -66,7 +66,11 @@ impl Server {
                 );
             }
             Phase::ShuttingDown => {
-                return Response::err(Some(id), ErrorCode::INVALID_REQUEST, "server is shutting down");
+                return Response::err(
+                    Some(id),
+                    ErrorCode::INVALID_REQUEST,
+                    "server is shutting down",
+                );
             }
             _ => {}
         }
@@ -86,7 +90,11 @@ impl Server {
             Err(payload) => {
                 let msg = panic_message(&*payload);
                 log!("{method} panicked: {msg}");
-                Response::err(Some(id), ErrorCode::INTERNAL_ERROR, format!("internal error: {msg}"))
+                Response::err(
+                    Some(id),
+                    ErrorCode::INTERNAL_ERROR,
+                    format!("internal error: {msg}"),
+                )
             }
         }
     }
@@ -117,7 +125,11 @@ impl Server {
         use lsp::Notification as N;
         let Notification { method, params: p } = note;
         if method == n::Exit::METHOD {
-            self.exit = Some(if self.phase == Phase::ShuttingDown { 0 } else { 1 });
+            self.exit = Some(if self.phase == Phase::ShuttingDown {
+                0
+            } else {
+                1
+            });
             return;
         }
         if self.phase != Phase::Running {

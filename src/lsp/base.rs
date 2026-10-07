@@ -30,7 +30,9 @@ impl From<String> for Uri {
 
 /// Zero-based line and character offset. What a "character" is depends on
 /// the negotiated [`PositionEncodingKind`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Position {
     pub line: u32,
     pub character: u32,
@@ -50,7 +52,9 @@ impl fmt::Display for Position {
 }
 
 /// `start` inclusive, `end` exclusive.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Range {
     pub start: Position,
     pub end: Position,

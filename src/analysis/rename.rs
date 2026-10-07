@@ -27,7 +27,9 @@ impl Analysis {
             Target::Note(_) => "note name",
             Target::Type(_) => "built-in type",
         };
-        Err(RenameError(format!("`{name}` is a {what} and cannot be renamed")))
+        Err(RenameError(format!(
+            "`{name}` is a {what} and cannot be renamed"
+        )))
     }
 
     /// The edits renaming the name at `offset` to `new_name`, sorted by
@@ -50,7 +52,12 @@ impl Analysis {
     }
 
     /// Refuse a rename that changes what any name refers to, or adds errors.
-    fn check_rename(&self, edits: &[(Span, String)], old: &str, new: &str) -> Result<(), RenameError> {
+    fn check_rename(
+        &self,
+        edits: &[(Span, String)],
+        old: &str,
+        new: &str,
+    ) -> Result<(), RenameError> {
         let mut text = self.text.clone();
         for (span, name) in edits.iter().rev() {
             text.replace_range(span.start as usize..span.end as usize, name);
@@ -69,7 +76,10 @@ impl Analysis {
                 .iter()
                 .find(|d| d.is_error() && !self.diagnostics.iter().any(|o| o.message == d.message));
             return Err(match first {
-                Some(d) => RenameError(format!("renaming `{old}` to `{new}` would cause an error: {}", d.message)),
+                Some(d) => RenameError(format!(
+                    "renaming `{old}` to `{new}` would cause an error: {}",
+                    d.message
+                )),
                 None => refused(),
             });
         }
@@ -89,7 +99,11 @@ impl Analysis {
         let mut map: HashMap<&Target, &Target> = HashMap::new();
         let mut back: HashMap<&Target, &Target> = HashMap::new();
         for o in before_occ {
-            let Some(n) = after.index.at(moved(o.span.start)).filter(|n| n.span.start == moved(o.span.start)) else {
+            let Some(n) = after
+                .index
+                .at(moved(o.span.start))
+                .filter(|n| n.span.start == moved(o.span.start))
+            else {
                 return Err(refused());
             };
             if *map.entry(&o.target).or_insert(&n.target) != &n.target
@@ -106,7 +120,11 @@ fn valid_name(name: &str) -> Result<(), RenameError> {
     let invalid = || RenameError(format!("`{name}` is not a valid name"));
     let tokens = lexer::lex(name).map_err(|_| invalid())?;
     match tokens.as_slice() {
-        [t, eof] if eof.kind == TokenKind::Eof && t.span.start == 0 && t.span.end as usize == name.len() => {
+        [t, eof]
+            if eof.kind == TokenKind::Eof
+                && t.span.start == 0
+                && t.span.end as usize == name.len() =>
+        {
             if t.kind != TokenKind::Ident {
                 return Err(RenameError(format!("`{name}` is a keyword")));
             }
@@ -170,7 +188,10 @@ rill main() -> Sample {
     #[test]
     fn names_in_parentheses() {
         let out = rename(&cursor("f |>", 0), "g").unwrap();
-        assert!(out.contains("let g = 440Hz") && out.contains("(g |> osc)") && out.contains("freq: g)"), "{out}");
+        assert!(
+            out.contains("let g = 440Hz") && out.contains("(g |> osc)") && out.contains("freq: g)"),
+            "{out}"
+        );
     }
 
     #[test]
@@ -184,7 +205,10 @@ rill main() -> Sample {
 
     #[test]
     fn refuses_bad_names() {
-        assert_eq!(rename(&cursor("phase", 0), "let").unwrap_err().0, "`let` is a keyword");
+        assert_eq!(
+            rename(&cursor("phase", 0), "let").unwrap_err().0,
+            "`let` is a keyword"
+        );
         for bad in ["", "a b", "1x", "a-b", "x(", "é"] {
             assert!(rename(&cursor("phase", 0), bad).is_err(), "{bad:?}");
         }
@@ -194,7 +218,11 @@ rill main() -> Sample {
     fn refuses_renames_that_change_meaning() {
         // `freq` would hide the parameter in `phase + freq`.
         let e = rename(&cursor("phase", 0), "freq").unwrap_err();
-        assert!(e.0.starts_with("renaming `phase` to `freq` would"), "{}", e.0);
+        assert!(
+            e.0.starts_with("renaming `phase` to `freq` would"),
+            "{}",
+            e.0
+        );
         // A local named like a built-in hides it.
         assert!(rename(&cursor("phase", 0), "sin").is_err());
         // Two definitions with one name.

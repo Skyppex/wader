@@ -82,7 +82,11 @@ impl Analysis {
     pub fn render_def(&self, index: usize) -> Rendered {
         let def = self.def(index);
         let sig = &self.checked.signatures[index];
-        let keyword = if sig.kind == DefKind::Rill { "rill" } else { "fn" };
+        let keyword = if sig.kind == DefKind::Rill {
+            "rill"
+        } else {
+            "fn"
+        };
         render(sig, keyword, |i| {
             let d = def.params.get(i)?.default.as_ref()?;
             Some(self.slice(d.span).to_owned())
@@ -107,8 +111,11 @@ impl Analysis {
                 (p.name.span.start, end)
             }
             BindingKind::Let | BindingKind::State => {
-                let line_start = self.text[..b.span.start as usize].rfind('\n').map_or(0, |i| i + 1);
-                let keyword_at = line_start + (self.text[line_start..].len() - self.text[line_start..].trim_start().len());
+                let line_start = self.text[..b.span.start as usize]
+                    .rfind('\n')
+                    .map_or(0, |i| i + 1);
+                let keyword_at = line_start
+                    + (self.text[line_start..].len() - self.text[line_start..].trim_start().len());
                 (keyword_at as u32, b.scope.start)
             }
             BindingKind::Size | BindingKind::FnParam => return None,
@@ -160,9 +167,15 @@ pub fn type_doc(name: &str) -> Option<&'static str> {
         "Bool" => "`true` or `false`.",
         "Freq" => "A frequency, written in `Hz` or `kHz`. Converts to samples via the host rate.",
         "Time" => "A duration, written in `s` or `ms`. Converts to samples via the host rate.",
-        "Pitch" => "A position in pitch, written as a note name like `A4` or `F#3`. Becomes a `Freq` through a tuning such as `equal`.",
-        "Interval" => "A distance in pitch, written in `st` (semitones) or `cents`. `Pitch ± Interval` gives a `Pitch`.",
-        "Gain" => "A level change, written in `dB`. `x + 6dB` makes `x` louder; any plain number is an amplitude factor.",
+        "Pitch" => {
+            "A position in pitch, written as a note name like `A4` or `F#3`. Becomes a `Freq` through a tuning such as `equal`."
+        }
+        "Interval" => {
+            "A distance in pitch, written in `st` (semitones) or `cents`. `Pitch ± Interval` gives a `Pitch`."
+        }
+        "Gain" => {
+            "A level change, written in `dB`. `x + 6dB` makes `x` louder; any plain number is an amplitude factor."
+        }
         _ => return None,
     })
 }
@@ -170,12 +183,22 @@ pub fn type_doc(name: &str) -> Option<&'static str> {
 /// What a keyword does.
 pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
     Some(match keyword {
-        "fn" => "Defines a pure function: it takes exactly what it declares and keeps no state. Without a name, `fn(x) { ... }` is an anonymous fn.",
-        "rill" => "Defines a stream processor. Its body runs once per tick and may keep `state`. A rill taking `Sample` can be applied to a frame; it then runs once per channel.",
-        "state" => "A variable that keeps its value between ticks. Only at the top of a rill body, with a constant initial value.",
+        "fn" => {
+            "Defines a pure function: it takes exactly what it declares and keeps no state. Without a name, `fn(x) { ... }` is an anonymous fn."
+        }
+        "rill" => {
+            "Defines a stream processor. Its body runs once per tick and may keep `state`. A rill taking `Sample` can be applied to a frame; it then runs once per channel."
+        }
+        "state" => {
+            "A variable that keeps its value between ticks. Only at the top of a rill body, with a constant initial value."
+        }
         "let" => "Binds a value. A stream bound with `let` and used twice is one instance.",
-        "return" => "Produces the output for this tick. Every path through a rill returns exactly once.",
-        "if" | "else" => "Chooses between two values; both branches have the same type. Without `else`, it produces nothing.",
+        "return" => {
+            "Produces the output for this tick. Every path through a rill returns exactly once."
+        }
+        "if" | "else" => {
+            "Chooses between two values; both branches have the same type. Without `else`, it produces nothing."
+        }
         "as" => "Converts between `Sample`, `Float` and `Int`. Units never disappear by a cast.",
         "true" | "false" => "A `Bool`.",
         _ => return None,
@@ -202,14 +225,19 @@ mod tests {
 
     #[test]
     fn user_signatures_keep_their_defaults() {
-        let a = Analysis::new("rill crush<N>(x: [Sample; N], bits: Float = 8, hold: Time = 0.5ms) -> Sample @ rate / 2 { return x[0] }");
+        let a = Analysis::new(
+            "rill crush<N>(x: [Sample; N], bits: Float = 8, hold: Time = 0.5ms) -> Sample @ rate / 2 { return x[0] }",
+        );
         let r = a.render_def(0);
         assert_eq!(
             r.label,
             "rill crush<N>(x: [Sample; N], bits: Float = 8, hold: Time = 0.5ms) -> Sample @ rate / 2"
         );
         let params: Vec<&str> = r.params.iter().map(|&(s, e)| &r.label[s..e]).collect();
-        assert_eq!(params, ["x: [Sample; N]", "bits: Float = 8", "hold: Time = 0.5ms"]);
+        assert_eq!(
+            params,
+            ["x: [Sample; N]", "bits: Float = 8", "hold: Time = 0.5ms"]
+        );
     }
 
     #[test]
@@ -220,8 +248,15 @@ mod tests {
             "fn equal(pitch: Pitch, steps: Int = 12, a4: Freq = 440Hz) -> Freq"
         );
         let min: Vec<String> = builtin("min").into_iter().map(|r| r.label).collect();
-        assert_eq!(min, ["fn min<N>(x: [T; N]) -> T", "fn min(a: S, b: S) -> S"]);
-        assert!(type_params_note(&builtins::lookup("min")).unwrap().contains("`S`"));
+        assert_eq!(
+            min,
+            ["fn min<N>(x: [T; N]) -> T", "fn min(a: S, b: S) -> S"]
+        );
+        assert!(
+            type_params_note(&builtins::lookup("min"))
+                .unwrap()
+                .contains("`S`")
+        );
         assert_eq!(type_params_note(&builtins::lookup("decay")), None);
     }
 }

@@ -71,11 +71,17 @@ rill main(freq: Freq = 440Hz) -> Sample {
         assert_eq!(a.slice(def), "phase");
         assert_eq!(def.start as usize, SRC.find("phase:").unwrap());
         let (a, o) = at(&cursor("freq / RATE", 0));
-        assert_eq!(a.definition(o + 4).map(|d| d.start as usize), SRC.find("freq:"));
+        assert_eq!(
+            a.definition(o + 4).map(|d| d.start as usize),
+            SRC.find("freq:")
+        );
 
         // A name in parentheses.
         let (a, o) = at(&cursor("s) + half", 0));
-        assert_eq!(a.definition(o).map(|d| d.start as usize), SRC.find("s = sin"));
+        assert_eq!(
+            a.definition(o).map(|d| d.start as usize),
+            SRC.find("s = sin")
+        );
 
         // A declaration is its own definition.
         let (a, o) = at(&cursor("main", 0));
@@ -93,7 +99,10 @@ rill main(freq: Freq = 440Hz) -> Sample {
         let (a, o) = at(&cursor("half", 0));
         let refs = a.references(o, true);
         let starts: Vec<_> = SRC.match_indices("half").map(|(i, _)| i).collect();
-        assert_eq!(texts(&a, &refs).iter().map(|r| r.0).collect::<Vec<_>>(), starts);
+        assert_eq!(
+            texts(&a, &refs).iter().map(|r| r.0).collect::<Vec<_>>(),
+            starts
+        );
         assert_eq!(a.references(o, false).len(), starts.len() - 1);
 
         let (a, o) = at(&cursor("phase", 2));

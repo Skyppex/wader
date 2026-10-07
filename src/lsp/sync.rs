@@ -2,7 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::base::{Range, TextDocumentIdentifier, TextDocumentItem, VersionedTextDocumentIdentifier};
+use super::base::{
+    Range, TextDocumentIdentifier, TextDocumentItem, VersionedTextDocumentIdentifier,
+};
 
 int_enum! {
     pub enum TextDocumentSyncKind {

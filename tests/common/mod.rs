@@ -37,3 +37,15 @@ pub fn at(position: Position) -> lsp::TextDocumentPositionParams {
 pub fn range(sl: u32, sc: u32, el: u32, ec: u32) -> lsp::Range {
     lsp::Range::new(Position::new(sl, sc), Position::new(el, ec))
 }
+
+/// Rill's examples: next to wader in a checkout, or inside it in the Nix
+/// build (see `source.nix`).
+pub fn examples_dir() -> std::path::PathBuf {
+    let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let inside = here.join("rill/examples");
+    if inside.is_dir() {
+        inside
+    } else {
+        here.join("../examples")
+    }
+}

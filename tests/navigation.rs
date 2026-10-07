@@ -25,15 +25,24 @@ fn definition_and_declaration() {
         uri: uri(),
         range: range(1, 5, 1, 8),
     }];
-    assert_eq!(client.request::<r::GotoDefinition>(at(pos)).unwrap(), Some(expected.clone()));
-    assert_eq!(client.request::<r::GotoDeclaration>(at(pos)).unwrap(), Some(expected));
+    assert_eq!(
+        client.request::<r::GotoDefinition>(at(pos)).unwrap(),
+        Some(expected.clone())
+    );
+    assert_eq!(
+        client.request::<r::GotoDeclaration>(at(pos)).unwrap(),
+        Some(expected)
+    );
 }
 
 #[test]
 fn utf16_columns_after_a_wide_character() {
     // `f` in `osc(f)`, declared after a comment holding a note: 2 UTF-16 units.
     let (mut client, pos) = open(&SRC.replace("$osc(f)", "osc($f)"));
-    let locs = client.request::<r::GotoDefinition>(at(pos)).unwrap().unwrap();
+    let locs = client
+        .request::<r::GotoDefinition>(at(pos))
+        .unwrap()
+        .unwrap();
     let col = "    let /*".len() as u32 + 2 + "*/ ".len() as u32;
     assert_eq!(locs[0].range, range(7, col, 7, col + 1));
 }
@@ -46,7 +55,9 @@ fn references_with_and_without_the_declaration() {
             .request::<r::References>(lsp::ReferenceParams {
                 text_document: at(pos).text_document,
                 position: pos,
-                context: lsp::ReferenceContext { include_declaration },
+                context: lsp::ReferenceContext {
+                    include_declaration,
+                },
             })
             .unwrap()
             .unwrap()
@@ -61,7 +72,10 @@ fn references_with_and_without_the_declaration() {
 
 #[test]
 fn nothing_at_a_keyword() {
-    let (mut client, pos) = open(&SRC.replace("$osc(f)", "osc(f)").replace("return sin", "$return sin"));
+    let (mut client, pos) = open(
+        &SRC.replace("$osc(f)", "osc(f)")
+            .replace("return sin", "$return sin"),
+    );
     assert_eq!(client.request::<r::GotoDefinition>(at(pos)).unwrap(), None);
 }
 

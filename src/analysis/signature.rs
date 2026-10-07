@@ -83,7 +83,11 @@ impl Analysis {
                     .params
                     .iter()
                     .map(|p| {
-                        let b = self.checked.bindings.iter().find(|b| b.span == p.name.span)?;
+                        let b = self
+                            .checked
+                            .bindings
+                            .iter()
+                            .find(|b| b.span == p.name.span)?;
                         self.binding_doc(b)
                     })
                     .collect();
@@ -156,7 +160,12 @@ impl Analysis {
         if let Some((id, _)) = local {
             return Some(Target::Binding(id));
         }
-        if let Some(i) = self.program.items.iter().position(|i| i.def().name.name == name) {
+        if let Some(i) = self
+            .program
+            .items
+            .iter()
+            .position(|i| i.def().name.name == name)
+        {
             return Some(Target::Def(i));
         }
         (!builtins::lookup(name).is_empty()).then(|| Target::Builtin(name.to_owned()))
@@ -192,8 +201,14 @@ rill clip(x: Sample, drive: Float = 2, // how hard
     fn positional_arguments() {
         let src = |call: &str| format!("{DEFS}rill main() -> Sample {{ return {call} }}");
         assert_eq!(active(&src("clip($0.5)")).as_deref(), Some("x: Sample"));
-        assert_eq!(active(&src("clip(0.5, $3)")).as_deref(), Some("drive: Float = 2"));
-        assert_eq!(active(&src("clip(0.5,$)")).as_deref(), Some("drive: Float = 2"));
+        assert_eq!(
+            active(&src("clip(0.5, $3)")).as_deref(),
+            Some("drive: Float = 2")
+        );
+        assert_eq!(
+            active(&src("clip(0.5,$)")).as_deref(),
+            Some("drive: Float = 2")
+        );
         assert_eq!(active(&src("clip(0.5 $, 3)")).as_deref(), Some("x: Sample"));
         assert_eq!(active(&src("clip(0.5, 3, 1, $9)")), None);
         // Outside the parentheses: no help.
@@ -204,8 +219,14 @@ rill clip(x: Sample, drive: Float = 2, // how hard
     #[test]
     fn named_and_piped_arguments() {
         let src = |call: &str| format!("{DEFS}rill main() -> Sample {{ return {call} }}");
-        assert_eq!(active(&src("clip(0.5, ceiling: $1)")).as_deref(), Some("ceiling: Float = 1"));
-        assert_eq!(active(&src("0.5 |> clip($3)")).as_deref(), Some("drive: Float = 2"));
+        assert_eq!(
+            active(&src("clip(0.5, ceiling: $1)")).as_deref(),
+            Some("ceiling: Float = 1")
+        );
+        assert_eq!(
+            active(&src("0.5 |> clip($3)")).as_deref(),
+            Some("drive: Float = 2")
+        );
     }
 
     #[test]
@@ -222,9 +243,15 @@ rill clip(x: Sample, drive: Float = 2, // how hard
     fn builtin_overloads_pick_by_argument_count() {
         let src = |call: &str| format!("rill main(a: Sample) -> Sample {{ return {call} }}");
         let (label, p) = help(&src("max($a)")).unwrap();
-        assert_eq!((label.as_str(), p.as_deref()), ("fn max<N>(x: [T; N]) -> T", Some("x: [T; N]")));
+        assert_eq!(
+            (label.as_str(), p.as_deref()),
+            ("fn max<N>(x: [T; N]) -> T", Some("x: [T; N]"))
+        );
         let (label, p) = help(&src("max(a, $a)")).unwrap();
-        assert_eq!((label.as_str(), p.as_deref()), ("fn max(a: S, b: S) -> S", Some("b: S")));
+        assert_eq!(
+            (label.as_str(), p.as_deref()),
+            ("fn max(a: S, b: S) -> S", Some("b: S"))
+        );
         assert_eq!(
             active(&src("sin(equal(A4, a4: $440Hz))")).as_deref(),
             Some("a4: Freq = 440Hz")
@@ -244,6 +271,9 @@ rill clip(x: Sample, drive: Float = 2, // how hard
     #[test]
     fn function_values() {
         let src = "rill main(f: fn(Sample, Float) -> Sample) -> Sample { return f(1, $2) }";
-        assert_eq!(help(src), Some(("f(Sample, Float) -> Sample".into(), Some("Float".into()))));
+        assert_eq!(
+            help(src),
+            Some(("f(Sample, Float) -> Sample".into(), Some("Float".into())))
+        );
     }
 }

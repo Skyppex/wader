@@ -11,8 +11,8 @@ pub mod hover;
 pub mod index;
 pub mod locate;
 pub mod nav;
-pub mod render;
 pub mod rename;
+pub mod render;
 pub mod signature;
 
 use rill::lang::ast::{Def, Program};

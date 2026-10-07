@@ -11,7 +11,10 @@ use crate::rpc::ErrorCode;
 use rill::lang::Span;
 
 impl Server {
-    pub(super) fn initialize(&mut self, params: InitializeParams) -> HandlerResult<InitializeResult> {
+    pub(super) fn initialize(
+        &mut self,
+        params: InitializeParams,
+    ) -> HandlerResult<InitializeResult> {
         if self.phase != Phase::Uninitialized {
             return Err(error(ErrorCode::INVALID_REQUEST, "already initialized"));
         }
@@ -191,7 +194,10 @@ impl Server {
         }))
     }
 
-    pub(super) fn completion(&mut self, p: CompletionParams) -> HandlerResult<Option<CompletionList>> {
+    pub(super) fn completion(
+        &mut self,
+        p: CompletionParams,
+    ) -> HandlerResult<Option<CompletionList>> {
         let (open, offset) = self.at(&p.text_document.uri, p.position)?;
         let completions = open.analysis.completions(offset, self.client.snippets);
         let range = convert::range(&open.doc, completions.replace);
@@ -199,7 +205,10 @@ impl Server {
             .items
             .into_iter()
             .map(|mut item| {
-                let new_text = item.insert_text.take().unwrap_or_else(|| item.label.clone());
+                let new_text = item
+                    .insert_text
+                    .take()
+                    .unwrap_or_else(|| item.label.clone());
                 item.text_edit = Some(TextEdit { range, new_text });
                 item
             })
@@ -210,7 +219,10 @@ impl Server {
         }))
     }
 
-    pub(super) fn definition(&mut self, p: DefinitionParams) -> HandlerResult<Option<Vec<Location>>> {
+    pub(super) fn definition(
+        &mut self,
+        p: DefinitionParams,
+    ) -> HandlerResult<Option<Vec<Location>>> {
         let uri = p.text_document.uri;
         let (open, offset) = self.at(&uri, p.position)?;
         let spans = open.analysis.definition(offset);
@@ -226,7 +238,10 @@ impl Server {
         self.definition(p)
     }
 
-    pub(super) fn references(&mut self, p: ReferenceParams) -> HandlerResult<Option<Vec<Location>>> {
+    pub(super) fn references(
+        &mut self,
+        p: ReferenceParams,
+    ) -> HandlerResult<Option<Vec<Location>>> {
         let uri = p.text_document.uri;
         let (open, offset) = self.at(&uri, p.position)?;
         let spans = open
@@ -241,10 +256,12 @@ impl Server {
     ) -> HandlerResult<Option<PrepareRenameResult>> {
         let (open, offset) = self.at(&p.text_document.uri, p.position)?;
         let prepared = open.analysis.prepare_rename(offset).map_err(rename_error)?;
-        Ok(prepared.map(|(span, placeholder)| PrepareRenameResult::RangeWithPlaceholder {
-            range: convert::range(&open.doc, span),
-            placeholder,
-        }))
+        Ok(prepared.map(
+            |(span, placeholder)| PrepareRenameResult::RangeWithPlaceholder {
+                range: convert::range(&open.doc, span),
+                placeholder,
+            },
+        ))
     }
 
     pub(super) fn rename(&mut self, p: RenameParams) -> HandlerResult<Option<WorkspaceEdit>> {

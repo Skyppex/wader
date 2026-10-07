@@ -47,7 +47,13 @@ pub const TYPES: [&str; 9] = [
     "Sample", "Float", "Int", "Bool", "Freq", "Time", "Pitch", "Interval", "Gain",
 ];
 
-fn item(label: &str, kind: Kind, detail: Option<String>, doc: Option<String>, sort: u8) -> CompletionItem {
+fn item(
+    label: &str,
+    kind: Kind,
+    detail: Option<String>,
+    doc: Option<String>,
+    sort: u8,
+) -> CompletionItem {
     CompletionItem {
         label: label.to_owned(),
         kind: Some(kind),
@@ -170,7 +176,10 @@ impl Analysis {
                 let p = prev.expect("matched");
                 Context::Pipe(self.type_ending_at(p.span.start))
             }
-            _ if self.def_at(offset).is_none_or(|d| offset < self.def(d).body.span.start) => {
+            _ if self
+                .def_at(offset)
+                .is_none_or(|d| offset < self.def(d).body.span.start) =>
+            {
                 // Outside any body: between definitions, or in a signature
                 // that did not parse.
                 if self.def_at(offset).is_some() {
@@ -183,7 +192,8 @@ impl Analysis {
                 Context::Expr { stmt_start: true }
             }
             Some(_) => {
-                let gap = &self.text[prev.expect("matched").span.end as usize..replace.start as usize];
+                let gap =
+                    &self.text[prev.expect("matched").span.end as usize..replace.start as usize];
                 Context::Expr {
                     stmt_start: gap.contains('\n'),
                 }
@@ -201,7 +211,10 @@ impl Analysis {
         }
         let gap = &self.text[from..offset as usize];
         let line = gap.rsplit('\n').next().unwrap_or("");
-        line.contains("//") || gap.rfind("/*").is_some_and(|open| !gap[open..].contains("*/"))
+        line.contains("//")
+            || gap
+                .rfind("/*")
+                .is_some_and(|open| !gap[open..].contains("*/"))
     }
 
     /// Whether the `(` or `,` at token `before - 1` is in the parameter list
@@ -218,7 +231,8 @@ impl Analysis {
                     return k(1) == Some(TokenKind::Fn)
                         || (k(1) == Some(TokenKind::Ident)
                             && matches!(k(2), Some(TokenKind::Fn | TokenKind::Rill)))
-                        || (k(1) == Some(TokenKind::Gt) && self.in_def_signature(self.tokens[j].span.start));
+                        || (k(1) == Some(TokenKind::Gt)
+                            && self.in_def_signature(self.tokens[j].span.start));
                 }
                 TokenKind::LParen => depth -= 1,
                 _ => {}
@@ -283,7 +297,9 @@ impl Analysis {
             TokenKind::Ident => {
                 let name = self.slice(last.span);
                 match self.target_by_name(name, last.span.start) {
-                    Some(super::index::Target::Binding(b)) => Some(self.checked.bindings[b].ty.clone()),
+                    Some(super::index::Target::Binding(b)) => {
+                        Some(self.checked.bindings[b].ty.clone())
+                    }
                     _ if rill::lang::check::pitch_literal(name).is_some() => Some(Type::Pitch),
                     _ => builtins::constant(name).cloned(),
                 }
@@ -325,7 +341,13 @@ impl Analysis {
                     BindingKind::State => Kind::Field,
                     _ => Kind::Variable,
                 };
-                item(&b.name, kind, Some(self.render_binding(b)), self.binding_doc(b), 0)
+                item(
+                    &b.name,
+                    kind,
+                    Some(self.render_binding(b)),
+                    self.binding_doc(b),
+                    0,
+                )
             })
             .collect();
         for (name, ty) in builtins::CONSTANTS {
@@ -352,7 +374,13 @@ impl Analysis {
                 coerces(t, p) || matches!(t, Type::Frame(e, _) if lifts && coerces(e, p))
             }
         };
-        let rank = |fit: bool, base: u8| if piped.is_some() && !fit { base + 5 } else { base };
+        let rank = |fit: bool, base: u8| {
+            if piped.is_some() && !fit {
+                base + 5
+            } else {
+                base
+            }
+        };
 
         let mut items = Vec::new();
         for (d, sig) in self.checked.signatures.iter().enumerate() {
@@ -372,9 +400,12 @@ impl Analysis {
         }
         for name in builtins::FUNCTIONS {
             let sigs = builtins::lookup(name);
-            let fit = sigs
-                .iter()
-                .any(|s| fits(s.params.first().map(|p| &p.ty), builtins::takes_frames(name)));
+            let fit = sigs.iter().any(|s| {
+                fits(
+                    s.params.first().map(|p| &p.ty),
+                    builtins::takes_frames(name),
+                )
+            });
             let detail = render::builtin(name).into_iter().next().map(|r| r.label);
             let doc = builtins::doc(name).map(str::to_owned);
             items.push(item(name, Kind::Function, detail, doc, rank(fit, 2)));
@@ -382,7 +413,13 @@ impl Analysis {
         for b in self.visible_bindings(offset) {
             if let Type::Fn(params, _) = &b.ty {
                 let fit = fits(params.first(), false);
-                items.push(item(&b.name, Kind::Variable, Some(b.ty.to_string()), None, rank(fit, 0)));
+                items.push(item(
+                    &b.name,
+                    Kind::Variable,
+                    Some(b.ty.to_string()),
+                    None,
+                    rank(fit, 0),
+                ));
             }
         }
         items
@@ -447,12 +484,24 @@ impl Analysis {
             .iter()
             .rposition(|t| matches!(t.kind, TokenKind::Fn | TokenKind::Rill));
         if let Some(k) = keyword
-            && self.tokens.get(k + 2).is_some_and(|t| t.kind == TokenKind::Lt)
+            && self
+                .tokens
+                .get(k + 2)
+                .is_some_and(|t| t.kind == TokenKind::Lt)
         {
-            for t in self.tokens[k + 3..i].iter().take_while(|t| t.kind != TokenKind::Gt) {
+            for t in self.tokens[k + 3..i]
+                .iter()
+                .take_while(|t| t.kind != TokenKind::Gt)
+            {
                 if t.kind == TokenKind::Ident {
                     let name = self.slice(t.span);
-                    items.push(item(name, Kind::TypeParameter, Some("size".into()), None, 1));
+                    items.push(item(
+                        name,
+                        Kind::TypeParameter,
+                        Some("size".into()),
+                        None,
+                        1,
+                    ));
                 }
             }
         }
@@ -486,7 +535,13 @@ fn unit_items() -> Vec<CompletionItem> {
         .iter()
         .map(|(name, unit)| {
             let ty = Type::from_dimension(unit.dimension());
-            item(name, Kind::Unit, Some(ty.to_string()), unit_doc(name).map(str::to_owned), 0)
+            item(
+                name,
+                Kind::Unit,
+                Some(ty.to_string()),
+                unit_doc(name).map(str::to_owned),
+                0,
+            )
         })
         .collect()
 }
@@ -524,7 +579,9 @@ mod tests {
 
     #[test]
     fn expressions_offer_locals_defs_builtins() {
-        let src = format!("{HEAD}rill main(gain: Float = 1) -> Sample {{\n    let a = 1\n    return a * g$\n}}");
+        let src = format!(
+            "{HEAD}rill main(gain: Float = 1) -> Sample {{\n    let a = 1\n    return a * g$\n}}"
+        );
         has(&src, &["a", "gain", "half", "osc", "sin", "RATE", "true"]);
         lacks(&src, &["let", "state", "freq", "x"]);
         // Locals first.
@@ -546,7 +603,8 @@ mod tests {
 
     #[test]
     fn while_typing_at_the_end_of_an_unclosed_body() {
-        let src = format!("{HEAD}rill main(gain: Float) -> Sample {{\n    let a = 1\n    let b = a + $");
+        let src =
+            format!("{HEAD}rill main(gain: Float) -> Sample {{\n    let a = 1\n    let b = a + $");
         has(&src, &["a", "gain", "osc"]);
         lacks(&src, &["b"]);
     }
@@ -555,7 +613,10 @@ mod tests {
     fn types() {
         has(&format!("{HEAD}rill f(x: $"), &["Sample", "Freq", "Gain"]);
         has(&format!("{HEAD}rill f(x: Sample) -> $"), &["Sample"]);
-        has(&format!("{HEAD}rill f() -> Sample {{\n    let a: F$\n"), &["Float", "Freq"]);
+        has(
+            &format!("{HEAD}rill f() -> Sample {{\n    let a: F$\n"),
+            &["Float", "Freq"],
+        );
         has("rill f<N>(x: [S$", &["Sample", "N"]);
         lacks(&format!("{HEAD}rill f(x: $"), &["half", "osc", "let"]);
     }
@@ -564,7 +625,10 @@ mod tests {
     fn units() {
         let c = complete("rill f() -> Sample { let t = 300m$ }");
         let labels: Vec<&str> = c.items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"ms") && labels.contains(&"Hz"), "{labels:?}");
+        assert!(
+            labels.contains(&"ms") && labels.contains(&"Hz"),
+            "{labels:?}"
+        );
         // Only the unit is replaced, not the digits.
         assert_eq!(c.replace.end - c.replace.start, 1);
     }

@@ -110,14 +110,18 @@ impl Analysis {
                 markdown(&self.render_binding(b), [owner, self.binding_doc(b)])
             }
             Target::Builtin(name) => {
-                let code: Vec<String> = render::builtin(name).into_iter().map(|r| r.label).collect();
+                let code: Vec<String> =
+                    render::builtin(name).into_iter().map(|r| r.label).collect();
                 let doc = builtins::doc(name).map(str::to_owned);
                 let note = render::type_params_note(&builtins::lookup(name));
                 markdown(&code.join("\n"), [doc, note])
             }
             Target::Constant(name) => {
                 let ty = builtins::constant(name)?;
-                markdown(&format!("{name}: {ty}"), [builtins::doc(name).map(str::to_owned)])
+                markdown(
+                    &format!("{name}: {ty}"),
+                    [builtins::doc(name).map(str::to_owned)],
+                )
             }
             Target::Note(name) => {
                 pitch_literal(name)?;
@@ -170,18 +174,27 @@ impl Analysis {
     fn hover_builtin_arg(&self, offset: u32, span: Span) -> Option<String> {
         let call = self.call_at(offset)?;
         let name = self.slice(span);
-        if !call.args.iter().any(|a| a.name.as_ref().is_some_and(|n| n.span == span)) {
+        if !call
+            .args
+            .iter()
+            .any(|a| a.name.as_ref().is_some_and(|n| n.span == span))
+        {
             return None;
         }
         let sigs = builtins::lookup(&call.callee.name);
-        let sig = sigs.iter().find(|s| s.params.iter().any(|p| p.name == name))?;
+        let sig = sigs
+            .iter()
+            .find(|s| s.params.iter().any(|p| p.name == name))?;
         let rendered = render::builtin(&call.callee.name);
         let i = sigs.iter().position(|s| std::ptr::eq(s, sig))?;
         let pi = sig.params.iter().position(|p| p.name == name)?;
         let (s, e) = rendered[i].params[pi];
         Some(markdown(
             &rendered[i].label[s..e],
-            [Some(format!("parameter of built-in `{}`", call.callee.name))],
+            [Some(format!(
+                "parameter of built-in `{}`",
+                call.callee.name
+            ))],
         ))
     }
 }
@@ -232,39 +245,68 @@ rill osc(freq: Freq, gain: Gain = -6dB) -> Sample {
             at("gain\n").unwrap(),
             "```rill\ngain: Gain = -6dB\n```\n\nparameter of rill `osc`"
         );
-        assert!(at("n = A4").unwrap().starts_with("```rill\nlet n: Pitch\n```"));
+        assert!(
+            at("n = A4")
+                .unwrap()
+                .starts_with("```rill\nlet n: Pitch\n```")
+        );
     }
 
     #[test]
     fn builtins_constants_notes_types() {
         let sin = at("sin(").unwrap();
-        assert!(sin.starts_with("```rill\nfn sin(x: T) -> T\n```\n\nSine of `x`"), "{sin}");
+        assert!(
+            sin.starts_with("```rill\nfn sin(x: T) -> T\n```\n\nSine of `x`"),
+            "{sin}"
+        );
         assert!(sin.contains("`T` is a plain number"), "{sin}");
-        assert!(at("RATE").unwrap().starts_with("```rill\nRATE: Freq\n```\n\nThe host sample rate"));
+        assert!(
+            at("RATE")
+                .unwrap()
+                .starts_with("```rill\nRATE: Freq\n```\n\nThe host sample rate")
+        );
         let a4 = at("A4").unwrap();
         assert!(a4.starts_with("```rill\nA4: Pitch\n```"), "{a4}");
         assert!(!a4.contains("Hz "), "a pitch has no frequency yet: {a4}");
-        assert!(at("Float").unwrap().starts_with("```rill\nFloat\n```\n\nA plain number"));
+        assert!(
+            at("Float")
+                .unwrap()
+                .starts_with("```rill\nFloat\n```\n\nA plain number")
+        );
     }
 
     #[test]
     fn literals_keywords_operators() {
         let db = at("6dB").unwrap();
-        assert!(db.starts_with("```rill\nGain\n```\n\n= ×0.5012 in amplitude"), "{db}");
-        assert!(at("state").unwrap().contains("keeps its value between ticks"));
+        assert!(
+            db.starts_with("```rill\nGain\n```\n\n= ×0.5012 in amplitude"),
+            "{db}"
+        );
+        assert!(
+            at("state")
+                .unwrap()
+                .contains("keeps its value between ticks")
+        );
         assert_eq!(at("+ freq").unwrap(), "```rill\nFloat\n```");
         assert_eq!(at("// Smooth"), None);
     }
 
     #[test]
     fn named_arguments_of_builtins() {
-        let h = hover("rill main() -> Sample { return sin(equal(A4, a$4: 432Hz) / RATE) }").unwrap();
-        assert_eq!(h, "```rill\na4: Freq = 440Hz\n```\n\nparameter of built-in `equal`");
+        let h =
+            hover("rill main() -> Sample { return sin(equal(A4, a$4: 432Hz) / RATE) }").unwrap();
+        assert_eq!(
+            h,
+            "```rill\na4: Freq = 440Hz\n```\n\nparameter of built-in `equal`"
+        );
     }
 
     #[test]
     fn broken_text() {
-        let h = hover("rill main(gain: Float) -> Sample {\n    let x = sin(1) * ga$in\n    let y = (x +\n").unwrap();
+        let h = hover(
+            "rill main(gain: Float) -> Sample {\n    let x = sin(1) * ga$in\n    let y = (x +\n",
+        )
+        .unwrap();
         assert!(h.starts_with("```rill\ngain: Float\n```"), "{h}");
     }
 }

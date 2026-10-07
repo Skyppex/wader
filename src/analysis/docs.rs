@@ -27,7 +27,10 @@ pub fn comment(text: &str, at: u32, end: u32) -> Option<String> {
     let line_end = text[end..].find('\n').map_or(text.len(), |i| end + i);
     let rest = &text[end..line_end];
     // A trailing comment, after at most a separator.
-    let rest = rest.trim_start().trim_start_matches([',', '{', ')']).trim_start();
+    let rest = rest
+        .trim_start()
+        .trim_start_matches([',', '{', ')'])
+        .trim_start();
     let c = rest.strip_prefix("//")?;
     Some(c.trim().to_owned()).filter(|c| !c.is_empty())
 }
@@ -44,7 +47,10 @@ mod tests {
     #[test]
     fn lines_above() {
         let text = "// header\n\n// Makes a sine.\n// Very smooth.\nrill sine() {}\n";
-        assert_eq!(doc_of(text, "rill sine").as_deref(), Some("Makes a sine.\nVery smooth."));
+        assert_eq!(
+            doc_of(text, "rill sine").as_deref(),
+            Some("Makes a sine.\nVery smooth.")
+        );
         assert_eq!(doc_of("rill sine() {}", "rill sine"), None);
         // A blank line ends the comment.
         assert_eq!(doc_of("// far away\n\nrill sine() {}", "rill sine"), None);
@@ -53,8 +59,14 @@ mod tests {
     #[test]
     fn trailing_comments_for_params() {
         let text = "rill crush(\n    x: Sample,\n    bits: Float = 8, // bit depth\n    // how long to hold\n    hold: Time\n)";
-        assert_eq!(doc_of(text, "bits: Float = 8").as_deref(), Some("bit depth"));
-        assert_eq!(doc_of(text, "hold: Time").as_deref(), Some("how long to hold"));
+        assert_eq!(
+            doc_of(text, "bits: Float = 8").as_deref(),
+            Some("bit depth")
+        );
+        assert_eq!(
+            doc_of(text, "hold: Time").as_deref(),
+            Some("how long to hold")
+        );
         assert_eq!(doc_of(text, "x: Sample"), None);
         // Something else earlier on the line: no comment from above.
         let text = "// about a\nrill f(a: Float, b: Float)";

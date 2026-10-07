@@ -26,15 +26,23 @@ fn capabilities_cover_every_feature() {
     );
     // Without prepare support, just `true`.
     let (_, result) = Client::with_capabilities(lsp::ClientCapabilities::default());
-    assert_eq!(result.capabilities.rename_provider, Some(lsp::RenameProvider::Bool(true)));
+    assert_eq!(
+        result.capabilities.rename_provider,
+        Some(lsp::RenameProvider::Bool(true))
+    );
 }
 
 #[test]
 fn hover() {
-    let (mut client, pos) = open("// Doubles.\nfn twice(x: Sample) -> Sample { x * 2 }\nrill main() -> Sample { return tw$ice(1) }");
+    let (mut client, pos) = open(
+        "// Doubles.\nfn twice(x: Sample) -> Sample { x * 2 }\nrill main() -> Sample { return tw$ice(1) }",
+    );
     let h = client.request::<r::HoverRequest>(at(pos)).unwrap().unwrap();
     assert_eq!(h.contents.kind, lsp::MarkupKind::Markdown);
-    assert_eq!(h.contents.value, "```rill\nfn twice(x: Sample) -> Sample\n```\n\nDoubles.");
+    assert_eq!(
+        h.contents.value,
+        "```rill\nfn twice(x: Sample) -> Sample\n```\n\nDoubles."
+    );
     assert_eq!(h.range, Some(range(2, 31, 2, 36)));
 }
 
@@ -57,7 +65,10 @@ fn signature_help_offsets_count_utf16() {
         panic!("offsets expected")
     };
     let utf16: Vec<u16> = sig.label.encode_utf16().collect();
-    assert_eq!(String::from_utf16(&utf16[s as usize..e as usize]).unwrap(), "b: Float = 2");
+    assert_eq!(
+        String::from_utf16(&utf16[s as usize..e as usize]).unwrap(),
+        "b: Float = 2"
+    );
 }
 
 #[test]
@@ -97,8 +108,12 @@ fn completion_replaces_the_word_being_typed() {
 
 #[test]
 fn prepare_rename_and_rename() {
-    let (mut client, pos) = open("rill main() -> Sample {\n    let v$ol = 0.5\n    return sin(vol) * vol\n}");
-    let prepared = client.request::<r::PrepareRename>(at(pos)).unwrap().unwrap();
+    let (mut client, pos) =
+        open("rill main() -> Sample {\n    let v$ol = 0.5\n    return sin(vol) * vol\n}");
+    let prepared = client
+        .request::<r::PrepareRename>(at(pos))
+        .unwrap()
+        .unwrap();
     assert_eq!(
         prepared,
         lsp::PrepareRenameResult::RangeWithPlaceholder {
@@ -116,7 +131,10 @@ fn prepare_rename_and_rename() {
         .unwrap();
     let edits = &edit.changes.unwrap()[&uri()];
     let ranges: Vec<_> = edits.iter().map(|e| e.range).collect();
-    assert_eq!(ranges, [range(1, 8, 1, 11), range(2, 15, 2, 18), range(2, 22, 2, 25)]);
+    assert_eq!(
+        ranges,
+        [range(1, 8, 1, 11), range(2, 15, 2, 18), range(2, 22, 2, 25)]
+    );
 
     // Refusals come back as errors with a reason.
     let e = client
@@ -134,7 +152,7 @@ fn prepare_rename_and_rename() {
 #[test]
 fn renaming_anything_in_the_examples_keeps_them_valid() {
     let mut count = 0;
-    for entry in std::fs::read_dir("../examples").unwrap() {
+    for entry in std::fs::read_dir(common::examples_dir()).unwrap() {
         let path = entry.unwrap().path();
         let text = std::fs::read_to_string(&path).unwrap();
         let a = Analysis::new(&text);
@@ -149,13 +167,23 @@ fn renaming_anything_in_the_examples_keeps_them_valid() {
                 }
             }
         }
-        for occ in a.index.all().iter().filter(|o| o.is_decl && !event_params.contains(&o.span)) {
+        for occ in a
+            .index
+            .all()
+            .iter()
+            .filter(|o| o.is_decl && !event_params.contains(&o.span))
+        {
             let new_name = format!("renamed_{count}");
             count += 1;
             let edits = a
                 .rename(occ.span.start, &new_name)
                 .unwrap_or_else(|e| panic!("{}: {:?}: {}", path.display(), occ, e.0));
-            let uses = a.index.all().iter().filter(|o| o.target == occ.target).count();
+            let uses = a
+                .index
+                .all()
+                .iter()
+                .filter(|o| o.target == occ.target)
+                .count();
             assert_eq!(edits.len(), uses);
             let mut out = text.clone();
             for (span, name) in edits.iter().rev() {

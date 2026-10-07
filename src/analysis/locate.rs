@@ -71,10 +71,18 @@ impl Analysis {
     /// The token containing `offset`, or else the one ending there.
     pub fn token_at(&self, offset: u32) -> Option<&Token> {
         let i = self.tokens.partition_point(|t| t.span.end < offset);
-        let mut candidates = self.tokens[i..].iter().take(2).filter(|t| contains(t.span, offset));
+        let mut candidates = self.tokens[i..]
+            .iter()
+            .take(2)
+            .filter(|t| contains(t.span, offset));
         let first = candidates.next()?;
         // Between two tokens, prefer the one starting here.
-        Some(candidates.next().filter(|t| t.span.start == offset).unwrap_or(first))
+        Some(
+            candidates
+                .next()
+                .filter(|t| t.span.start == offset)
+                .unwrap_or(first),
+        )
     }
 
     /// Index of the token containing `offset` or ending right at it, for
@@ -123,7 +131,8 @@ impl Analysis {
                 let in_parens = open < offset
                     && offset <= e.span.end
                     && self.text.as_bytes().get(open as usize) == Some(&b'(')
-                    && !(offset == e.span.end && self.text.as_bytes()[e.span.end as usize - 1] == b')');
+                    && !(offset == e.span.end
+                        && self.text.as_bytes()[e.span.end as usize - 1] == b')');
                 if in_parens {
                     found = Some((callee, args.as_slice(), *piped));
                 }
@@ -144,7 +153,10 @@ impl Analysis {
                 end <= next && self.text[end as usize..next as usize].contains(',')
             })
             .count();
-        let arg_name = written.get(index).and_then(|a| a.name.as_ref()).map(|n| n.name.as_str());
+        let arg_name = written
+            .get(index)
+            .and_then(|a| a.name.as_ref())
+            .map(|n| n.name.as_str());
         Some(CallSite {
             callee,
             args,
@@ -177,7 +189,8 @@ impl Analysis {
                 TokenKind::LParen => {
                     if depth == 0 {
                         let callee = self.tokens[..i].last()?;
-                        return (callee.kind == TokenKind::Ident && callee.span.end == t.span.start)
+                        return (callee.kind == TokenKind::Ident
+                            && callee.span.end == t.span.start)
                             .then_some((callee.span, commas, name));
                     }
                     depth -= 1;

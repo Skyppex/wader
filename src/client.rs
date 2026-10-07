@@ -50,7 +50,9 @@ impl Client {
         Client::with_capabilities(editor_capabilities()).0
     }
 
-    pub fn with_capabilities(capabilities: lsp::ClientCapabilities) -> (Client, lsp::InitializeResult) {
+    pub fn with_capabilities(
+        capabilities: lsp::ClientCapabilities,
+    ) -> (Client, lsp::InitializeResult) {
         let mut client = Client {
             server: Server::new(),
             next_id: 0,
@@ -108,7 +110,10 @@ impl Client {
         }
     }
 
-    pub fn request<R: lsp::Request>(&mut self, params: R::Params) -> Result<R::Result, ResponseError> {
+    pub fn request<R: lsp::Request>(
+        &mut self,
+        params: R::Params,
+    ) -> Result<R::Result, ResponseError> {
         let params = serde_json::to_value(params).expect("params serialize");
         let value = self.request_raw(R::METHOD, params)?;
         Ok(serde_json::from_value(value).expect("server sent a well-formed result"))
