@@ -1,3 +1,7 @@
+/target
+/result
+/.crypt
+
 # Devenv
 .devenv*
 devenv.local.nix
