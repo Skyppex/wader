@@ -199,7 +199,7 @@ fn renaming_anything_in_the_examples_keeps_them_valid() {
             );
             assert!(matches!(
                 occ.target,
-                Target::Def(_) | Target::Binding(_) | Target::Event(_)
+                Target::Def(_) | Target::Binding(_) | Target::Event(_) | Target::Seq(_)
             ));
         }
     }

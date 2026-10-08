@@ -21,7 +21,7 @@ impl Analysis {
         };
         let name = self.slice(occ.span).to_owned();
         let what = match &occ.target {
-            Target::Def(_) | Target::Binding(_) | Target::Event(_) => {
+            Target::Def(_) | Target::Binding(_) | Target::Event(_) | Target::Seq(_) => {
                 return Ok(Some((occ.span, name)));
             }
             Target::Builtin(_) => "built-in function",
@@ -212,6 +212,14 @@ rill main() Sample {
         let src = "event keys note_on\nevent pads note_on\nrill main() Sample {\n    on keys { }\n    on pads { }\n    return 0\n}\n";
         let a = Analysis::new(src);
         assert!(a.rename(src.find("keys").unwrap() as u32, "pads").is_err());
+    }
+
+    #[test]
+    fn sequences_rename_everywhere() {
+        let src = "seq riff { C4 }\nevent lead note_on(sender: riff)\nrill main() Sample {\n    on start { invoke riff\n    halt riff }\n    on lead { }\n    return 0\n}\n";
+        let a = Analysis::new(src);
+        let edits = a.rename(src.find("riff").unwrap() as u32, "hook").unwrap();
+        assert_eq!(edits.len(), 4);
     }
 
     #[test]

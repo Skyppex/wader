@@ -162,6 +162,27 @@ impl Analysis {
         out
     }
 
+    /// A sequence's header as code: `seq riff(step: 1/8, tempo: 120bpm)`.
+    pub fn render_seq(&self, index: usize) -> String {
+        let s = &self.program.seqs[index];
+        let mut out = format!("seq {}", s.name.name);
+        if !s.settings.is_empty() {
+            let settings: Vec<String> = s
+                .settings
+                .iter()
+                .map(|f| format!("{}: {}", f.name.name, self.slice(f.value.span)))
+                .collect();
+            out += &format!("({})", settings.join(", "));
+        }
+        out
+    }
+
+    /// The doc comment of the sequence at `index`.
+    pub fn seq_doc(&self, index: usize) -> Option<String> {
+        let s = &self.program.seqs[index];
+        docs::comment(&self.text, s.span.start, s.name.span.end)
+    }
+
     /// The doc comment of the event declaration at `index`.
     pub fn event_doc(&self, index: usize) -> Option<String> {
         let e = &self.program.events[index];
@@ -285,6 +306,25 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
             "Chooses between two values; both branches have the same type. Without `else`, it produces nothing."
         }
         "as" => "Converts between `Sample`, `Float` and `Int`. Units never disappear by a cast.",
+        "seq" => {
+            "Declares a sequence: a pattern of notes that plays when invoked, as in `seq riff(step: 1/8) { C4, _, E4@0.5 }`. It is a sender: `event lead note_on(sender: riff)` hears its notes."
+        }
+        "invoke" => {
+            "Starts a sequence (`invoke riff`, `invoke id riff`) and gives its instance id, or sends a declared event (`invoke keys(pitch: C4)`). Only in `on` handlers."
+        }
+        "trigger" => {
+            "Starts a sequence at a step, counting from 1 (`trigger 5 id riff`), restarting it if it is playing. Gives the instance id. Only in `on` handlers."
+        }
+        "halt" => {
+            "Stops an instance of a sequence (`halt id riff`) or all of them (`halt riff`), ending the notes they hold. Only in `on` handlers."
+        }
+        "claim" => {
+            "Makes a `note_on` handler run in one voice of a pool, which then holds the note. `claim(tail: 2s)` sets how long the voice must be silent after its release before it is free (100ms by default)."
+        }
+        "release" => {
+            "Makes a `note_off` handler run only in the voice holding that note. The voice stays busy until its sound has died away."
+        }
+        "start" => "A built-in event: `on start { ... }` runs once, before the first sample.",
         "event" => {
             "Declares an event: a name, a kind (`note_on`, `note_off` or `control_change`) and optional filters, as in `event keys note_on(sender: 5, channel: 1)`. Handlers use the name."
         }

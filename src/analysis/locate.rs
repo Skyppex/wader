@@ -1,7 +1,7 @@
 //! What is at a position: tokens, expressions, calls.
 
 use rill::lang::Span;
-use rill::lang::ast::{Arg, Block, Expr, ExprKind, Ident, Stmt};
+use rill::lang::ast::{Arg, Block, Expr, ExprKind, HandlerMode, Ident, Stmt};
 use rill::lang::lexer::{Token, TokenKind};
 
 use super::Analysis;
@@ -14,11 +14,24 @@ fn contains(span: Span, offset: u32) -> bool {
 pub fn walk_block<'a>(block: &'a Block, f: &mut impl FnMut(&'a Expr)) {
     for stmt in &block.stmts {
         match stmt {
-            Stmt::Let { value, .. } => walk_expr(value, f),
+            Stmt::Let { value, .. } => {
+                if let Some(value) = value {
+                    walk_expr(value, f);
+                }
+            }
             Stmt::State { init, .. } => walk_expr(init, f),
             Stmt::Assign { value, .. } => walk_expr(value, f),
             Stmt::Return { value, .. } => walk_expr(value, f),
-            Stmt::EventHandler { body, .. } => walk_block(body, f),
+            Stmt::EventHandler { mode, body, .. } => {
+                if let HandlerMode::Claim { tail: Some(tail) } = mode {
+                    walk_expr(tail, f);
+                }
+                walk_block(body, f);
+            }
+            Stmt::For { iter, body, .. } => {
+                walk_expr(iter, f);
+                walk_block(body, f);
+            }
             Stmt::Expr(e) => walk_expr(e, f),
         }
     }
@@ -28,10 +41,30 @@ pub fn walk_expr<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
     f(e);
     match &e.kind {
         ExprKind::Number { .. } | ExprKind::Bool(_) | ExprKind::Name(_) => {}
-        ExprKind::Unary(_, x) | ExprKind::Cast(x, _) | ExprKind::Field(x, _) => walk_expr(x, f),
-        ExprKind::Binary(_, a, b) | ExprKind::Index(a, b) => {
+        ExprKind::Unary(_, x)
+        | ExprKind::Cast(x, _)
+        | ExprKind::Field(x, _)
+        | ExprKind::Repeat(x, _) => walk_expr(x, f),
+        ExprKind::Binary(_, a, b)
+        | ExprKind::Index(a, b)
+        | ExprKind::Range {
+            start: a, end: b, ..
+        } => {
             walk_expr(a, f);
             walk_expr(b, f);
+        }
+        ExprKind::Invoke { step, id, args, .. } => {
+            for x in step.iter().chain(id.iter()) {
+                walk_expr(x, f);
+            }
+            for a in args {
+                walk_expr(&a.value, f);
+            }
+        }
+        ExprKind::Halt { id, .. } => {
+            if let Some(id) = id {
+                walk_expr(id, f);
+            }
         }
         ExprKind::Call { args, .. } => {
             for a in args {
@@ -121,10 +154,19 @@ impl Analysis {
         let mut visit = |e: &'a Expr| {
             let mut children = Vec::new();
             match &e.kind {
-                ExprKind::Unary(_, x) | ExprKind::Cast(x, _) | ExprKind::Field(x, _) => {
-                    children.push(x.id)
+                ExprKind::Unary(_, x)
+                | ExprKind::Cast(x, _)
+                | ExprKind::Field(x, _)
+                | ExprKind::Repeat(x, _) => children.push(x.id),
+                ExprKind::Binary(_, a, b)
+                | ExprKind::Index(a, b)
+                | ExprKind::Range {
+                    start: a, end: b, ..
+                } => children.extend([a.id, b.id]),
+                ExprKind::Invoke { step, id, args, .. } => {
+                    children.extend(step.iter().chain(id.iter()).map(|x| x.id));
+                    children.extend(args.iter().map(|a| a.value.id));
                 }
-                ExprKind::Binary(_, a, b) | ExprKind::Index(a, b) => children.extend([a.id, b.id]),
                 ExprKind::Call { args, .. } => children.extend(args.iter().map(|a| a.value.id)),
                 ExprKind::Frame(xs) => children.extend(xs.iter().map(|x| x.id)),
                 ExprKind::If { cond, els, .. } => {
@@ -154,11 +196,14 @@ impl Analysis {
                 callee,
                 args,
                 piped,
+                ..
             } = &e.kind
             {
-                // Inside the parentheses: after the callee, before the end
-                // (or at the end, if the closing parenthesis is missing).
-                let open = callee.span.end;
+                // Inside the parentheses: after the callee (and any explicit
+                // sizes, as in `f<4>(...)`), before the end (or at the end,
+                // if the closing parenthesis is missing).
+                let after = &self.text[callee.span.end as usize..e.span.end as usize];
+                let open = callee.span.end + after.find('(').unwrap_or(0) as u32;
                 let in_parens = open < offset
                     && offset <= e.span.end
                     && self.text.as_bytes().get(open as usize) == Some(&b'(')

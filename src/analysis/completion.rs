@@ -39,8 +39,23 @@ enum Context {
     EventKind,
     /// Inside an event declaration's parentheses: a filter name.
     EventFilter,
-    /// After `on`: a declared event.
+    /// After `on`: a declared event, or `start`.
     EventName,
+    /// Inside a sequence's settings: a setting name.
+    SeqSetting,
+    /// After `sender:` in an event's filters: a sequence.
+    SenderValue,
+    /// After `invoke`, `trigger STEP` or `halt`, and any id: what to start
+    /// or stop. Events too for `invoke`.
+    InvokeTarget {
+        events: bool,
+    },
+    /// Inside `invoke riff(...)` or `invoke keys(...)`: a setting or field.
+    InvokeArg {
+        target: String,
+    },
+    /// After a handler's head: `claim` or `release`.
+    HandlerMode,
     /// After `|>`: something to call, with the type of what is piped in.
     Pipe(Option<Type>),
     Expr {
@@ -92,13 +107,39 @@ impl Analysis {
         let (replace, context) = self.completion_context(offset);
         let mut items = match context {
             Context::Nothing => Vec::new(),
-            Context::TopLevel => self.keyword_items(&["fn", "rill", "event"], snippets),
+            Context::TopLevel => self.keyword_items(&["fn", "rill", "event", "seq"], snippets),
+            Context::SeqSetting => SEQ_SETTINGS
+                .iter()
+                .map(|(name, ty, doc)| {
+                    item(
+                        name,
+                        Kind::Property,
+                        Some((*ty).to_owned()),
+                        Some((*doc).to_owned()),
+                        0,
+                    )
+                })
+                .collect(),
+            Context::SenderValue => self.seq_items(),
+            Context::InvokeTarget { events } => {
+                let mut items = self.seq_items();
+                if events {
+                    items.extend(self.event_name_items());
+                }
+                items
+            }
+            Context::InvokeArg { target } => self.invoke_arg_items(&target),
+            Context::HandlerMode => self.keyword_items(&["claim", "release"], snippets),
             Context::EventKind => event_kind_items(),
             Context::EventFilter => ["sender", "channel"]
                 .iter()
                 .map(|f| item(f, Kind::Property, Some("filter".into()), None, 0))
                 .collect(),
-            Context::EventName => self.event_name_items(),
+            Context::EventName => {
+                let mut items = self.event_name_items();
+                items.extend(self.keyword_items(&["start"], snippets));
+                items
+            }
             Context::Type => self.type_items(offset),
             Context::Unit => unit_items(),
             Context::Pipe(piped) => self.callable_items(offset, piped.as_ref()),
@@ -107,6 +148,12 @@ impl Analysis {
                 items.extend(self.value_items(offset));
                 items.extend(self.callable_items(offset, None));
                 let mut keywords = vec!["if", "fn", "true", "false"];
+                if self.in_handler(offset) {
+                    keywords.extend(["invoke", "trigger"]);
+                    if stmt_start {
+                        keywords.push("halt");
+                    }
+                }
                 if stmt_start {
                     keywords.extend(["let", "return"]);
                     if self.in_rill_body(offset) {
@@ -177,6 +224,29 @@ impl Analysis {
         }
         if word(prev, "on") {
             return (replace, Context::EventName);
+        }
+        if word(prev, "seq") && (starts_line(prev) || before == 1) {
+            return (replace, Context::Nothing);
+        }
+        if let Some(events) = self.invoke_target_at(before) {
+            return (replace, Context::InvokeTarget { events });
+        }
+        if self.at_handler_mode(before) {
+            return (replace, Context::HandlerMode);
+        }
+        if matches!(kind(prev), Some(TokenKind::LParen | TokenKind::Comma)) {
+            if self.in_seq_settings(before - 1) {
+                return (replace, Context::SeqSetting);
+            }
+            if let Some(target) = self.invoke_args_target(before - 1) {
+                return (replace, Context::InvokeArg { target });
+            }
+        }
+        if kind(prev) == Some(TokenKind::Colon)
+            && word(prev2, "sender")
+            && self.in_event_filters(before - 2)
+        {
+            return (replace, Context::SenderValue);
         }
         if matches!(kind(prev), Some(TokenKind::LParen | TokenKind::Comma))
             && self.in_event_filters(before - 1)
@@ -294,6 +364,161 @@ impl Analysis {
             }
         }
         false
+    }
+
+    /// The unmatched `(` at or before token `i`, within the current
+    /// statement.
+    fn open_paren(&self, i: usize) -> Option<usize> {
+        let mut depth = 0;
+        for j in (0..=i).rev() {
+            match self.tokens[j].kind {
+                TokenKind::RParen => depth += 1,
+                TokenKind::LParen if depth == 0 => return Some(j),
+                TokenKind::LParen => depth -= 1,
+                TokenKind::LBrace | TokenKind::RBrace => return None,
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn is_word(&self, i: usize, w: &str) -> bool {
+        let t = &self.tokens[i];
+        t.kind == TokenKind::Ident && self.slice(t.span) == w
+    }
+
+    /// Is token `i` inside a sequence's settings, as in `seq riff(step: 1/8, |`?
+    fn in_seq_settings(&self, i: usize) -> bool {
+        let Some(j) = self.open_paren(i) else {
+            return false;
+        };
+        j >= 2 && self.tokens[j - 1].kind == TokenKind::Ident && self.is_word(j - 2, "seq")
+    }
+
+    /// The `invoke`, `trigger` or `halt` that the tokens just before `end`
+    /// (exclusive) belong to, skipping the step and id: the index of that
+    /// word. Only on one line.
+    fn invoke_word(&self, end: usize) -> Option<usize> {
+        let mut j = end;
+        let mut operands = 0;
+        while j > 0 {
+            let t = &self.tokens[j - 1];
+            if t.kind == TokenKind::Ident
+                && matches!(self.slice(t.span), "invoke" | "trigger" | "halt")
+            {
+                return Some(j - 1);
+            }
+            let operand = matches!(
+                t.kind,
+                TokenKind::Ident | TokenKind::Number { .. } | TokenKind::Dot
+            );
+            // The word, the step, the id and the cursor share one line.
+            if !operand || operands >= 6 || (j < end && self.tokens[j].newline_before) {
+                return None;
+            }
+            operands += 1;
+            j -= 1;
+        }
+        None
+    }
+
+    /// At the target of `invoke`, `trigger` or `halt`: whether events can go
+    /// there too (only for `invoke`).
+    fn invoke_target_at(&self, before: usize) -> Option<bool> {
+        let w = self.invoke_word(before)?;
+        let word = self.slice(self.tokens[w].span);
+        // `trigger` needs its step before the target.
+        if word == "trigger" && before == w + 1 {
+            return None;
+        }
+        Some(word == "invoke")
+    }
+
+    /// Inside `invoke riff(...)`: the name of `riff`.
+    fn invoke_args_target(&self, i: usize) -> Option<String> {
+        let j = self.open_paren(i)?;
+        let target = self.tokens.get(j.checked_sub(1)?)?;
+        if target.kind != TokenKind::Ident {
+            return None;
+        }
+        self.invoke_word(j - 1)?;
+        Some(self.slice(target.span).to_owned())
+    }
+
+    /// Right after a handler's head, `on keys(note) |` or `on keys |`, where
+    /// `claim` or `release` can go.
+    fn at_handler_mode(&self, before: usize) -> bool {
+        let Some(prev) = before.checked_sub(1) else {
+            return false;
+        };
+        let name = match self.tokens[prev].kind {
+            TokenKind::RParen => match prev.checked_sub(1).and_then(|i| self.open_paren(i)) {
+                Some(open) if open >= 1 => open - 1,
+                _ => return false,
+            },
+            TokenKind::Ident => prev,
+            _ => return false,
+        };
+        name >= 1 && self.is_word(name - 1, "on") && !self.is_word(name, "start")
+    }
+
+    /// Inside the body of an `on` handler.
+    fn in_handler(&self, offset: u32) -> bool {
+        let Some(d) = self.def_at(offset) else {
+            return false;
+        };
+        self.def(d).body.stmts.iter().any(|stmt| {
+            matches!(stmt, rill::lang::ast::Stmt::EventHandler { body, .. }
+                if body.span.start < offset && offset <= body.span.end)
+        })
+    }
+
+    /// The program's sequences.
+    fn seq_items(&self) -> Vec<CompletionItem> {
+        (0..self.program.seqs.len())
+            .map(|i| {
+                item(
+                    &self.program.seqs[i].name.name,
+                    Kind::Event,
+                    Some(self.render_seq(i)),
+                    self.seq_doc(i),
+                    0,
+                )
+            })
+            .collect()
+    }
+
+    /// Settings of a sequence being invoked, or fields of an event.
+    fn invoke_arg_items(&self, target: &str) -> Vec<CompletionItem> {
+        if self.program.seqs.iter().any(|s| s.name.name == target) {
+            return SEQ_SETTINGS
+                .iter()
+                .filter(|(name, _, _)| !matches!(*name, "meter" | "step" | "instances"))
+                .map(|(name, ty, doc)| {
+                    item(
+                        name,
+                        Kind::Property,
+                        Some((*ty).to_owned()),
+                        Some((*doc).to_owned()),
+                        0,
+                    )
+                })
+                .collect();
+        }
+        let Some(decl) = self
+            .checked
+            .events
+            .iter()
+            .flatten()
+            .find(|d| d.name == target)
+        else {
+            return Vec::new();
+        };
+        decl.kind
+            .fields()
+            .iter()
+            .map(|f| item(f, Kind::Field, None, None, 0))
+            .collect()
     }
 
     /// The program's declared events.
@@ -606,6 +831,7 @@ impl Analysis {
                     "if" => Some("if $1 {\n\t$0\n}"),
                     "event" => Some("event ${1:name} ${2|note_on,note_off,control_change|}"),
                     "on" => Some("on ${1:event}(${2:note}) {\n\t$0\n}"),
+                    "seq" => Some("seq ${1:name}(step: ${2:1/8}) {\n\t$0\n}"),
                     _ => None,
                 };
                 let mut it = item(k, Kind::Keyword, None, keyword_doc(k).map(str::to_owned), 4);
@@ -619,6 +845,42 @@ impl Analysis {
             .collect()
     }
 }
+
+/// A sequence's settings: name, type and what it does.
+const SEQ_SETTINGS: [(&str, &str, &str); 8] = [
+    (
+        "meter",
+        "N/D",
+        "The time signature; its denominator is the beat. Fixed when declared. Default `4/4`.",
+    ),
+    (
+        "step",
+        "1/D",
+        "How long each step is, as a note value. Fixed when declared. Default `1/8`.",
+    ),
+    (
+        "tempo",
+        "Freq",
+        "Beats per second, as in `120bpm`. Can follow a stream while playing. Default `120bpm`.",
+    ),
+    (
+        "gate",
+        "Float",
+        "How much of its step a note lasts, above 0 and at most 1. Default `0.9`.",
+    ),
+    (
+        "velocity",
+        "Float",
+        "The velocity of steps without `@`, 0–1. Default `0.8`.",
+    ),
+    ("repeat", "Int", "How many times it plays. Default `1`."),
+    ("loop", "Bool", "Play until halted. Default `false`."),
+    (
+        "instances",
+        "Int",
+        "How many copies can play at once. Fixed when declared. Default `64`.",
+    ),
+];
 
 fn event_kind_items() -> Vec<CompletionItem> {
     rill::event::EventKind::ALL
@@ -795,7 +1057,7 @@ mod tests {
         // Declared events after `on`.
         assert_eq!(
             labels(&format!("{decls}rill main() Sample {{\n    on $")),
-            ["keys", "knob"]
+            ["keys", "knob", "start"]
         );
         // `on` starts statements in rills only.
         has(&format!("{HEAD}rill main() Sample {{\n    $\n}}"), &["on"]);
@@ -803,9 +1065,74 @@ mod tests {
     }
 
     #[test]
+    fn sequences() {
+        let head =
+            "seq riff(step: 1/8) { C4, E4 }\nseq bass { C2 }\nevent lead note_on(sender: riff)\n";
+        let body = |line: &str| {
+            format!(
+                "{head}rill main() Sample {{\n    on lead(note) {{\n        {line}\n    }}\n    return 0\n}}"
+            )
+        };
+        // Settings inside a sequence's parentheses.
+        let got = labels("seq riff($");
+        assert_eq!(
+            got,
+            [
+                "gate",
+                "instances",
+                "loop",
+                "meter",
+                "repeat",
+                "step",
+                "tempo",
+                "velocity"
+            ]
+        );
+        assert!(labels("seq $").is_empty(), "naming the sequence");
+        // Sequences after `sender:`.
+        assert_eq!(
+            labels(&format!("{head}event x note_on(sender: $")),
+            ["bass", "riff"]
+        );
+        // Targets: sequences, and events for `invoke`.
+        assert_eq!(labels(&body("invoke $")), ["bass", "lead", "riff"]);
+        assert_eq!(labels(&body("invoke 3 $")), ["bass", "lead", "riff"]);
+        assert_eq!(labels(&body("halt note.instance $")), ["bass", "riff"]);
+        assert_eq!(labels(&body("trigger 2 $")), ["bass", "riff"]);
+        assert!(
+            labels(&body("trigger $")).iter().all(|l| l != "riff"),
+            "the step comes first"
+        );
+        // Settings when invoking a sequence; fields when invoking an event.
+        assert_eq!(
+            labels(&body("invoke riff($")),
+            ["gate", "loop", "repeat", "tempo", "velocity"]
+        );
+        assert_eq!(
+            labels(&body("invoke lead($")),
+            ["instance", "pitch", "velocity"]
+        );
+        // `invoke`, `trigger` and `halt` only in handlers.
+        has(&body("$"), &["invoke", "trigger", "halt"]);
+        lacks(
+            &format!("{head}rill main() Sample {{\n    $\n}}"),
+            &["invoke", "halt"],
+        );
+        // `claim` and `release` after a handler's head.
+        assert_eq!(
+            labels(&format!("{head}rill v() Sample {{\n    on lead(note) $")),
+            ["claim", "release"]
+        );
+        assert_eq!(
+            labels(&format!("{head}rill v() Sample {{\n    on lead cl$")),
+            ["claim", "release"]
+        );
+    }
+
+    #[test]
     fn top_level() {
         let got = labels(&format!("{HEAD}\n$"));
-        assert_eq!(got, ["event", "fn", "rill"]);
+        assert_eq!(got, ["event", "fn", "rill", "seq"]);
         let c = complete(&format!("{HEAD}\nri$"));
         let rill = c.items.iter().find(|i| i.label == "rill").unwrap();
         assert_eq!(rill.insert_text_format, Some(InsertTextFormat::Snippet));

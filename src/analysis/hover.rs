@@ -93,19 +93,40 @@ impl Analysis {
 
     /// `event` starting a declaration, or `on` starting a handler. Both are
     /// ordinary names elsewhere.
+    /// A word that is a keyword here and an ordinary name elsewhere:
+    /// `event`, `on`, `seq`, `invoke`, `trigger`, `halt`, `claim`,
+    /// `release`, or `start` in `on start`.
     fn is_event_keyword(&self, span: Span) -> bool {
+        let next = self.tokens.iter().find(|t| t.span.start >= span.end);
+        let prev = self.tokens.iter().rev().find(|t| t.span.end <= span.start);
+        let next_kind = next.map(|t| t.kind);
+        // `claim` and `release` follow a handler's head: `on keys(n) claim {`.
+        let line_start = self.text[..span.start as usize]
+            .rfind('\n')
+            .map_or(0, |i| i + 1);
+        let on_line = self.text[line_start..span.start as usize]
+            .trim_start()
+            .starts_with("on ");
         match self.slice(span) {
             "event" => self
                 .program
                 .events
                 .iter()
                 .any(|e| e.span.start == span.start),
-            "on" => {
-                let next = self.tokens.iter().find(|t| t.span.start > span.start);
-                next.is_some_and(|t| {
-                    matches!(self.index.at(t.span.start), Some(o) if matches!(o.target, Target::Event(_)))
-                })
+            "seq" => self.program.seqs.iter().any(|s| s.span.start == span.start),
+            "on" => next.is_some_and(|t| {
+                self.slice(t.span) == "start"
+                    || matches!(self.index.at(t.span.start), Some(o) if matches!(o.target, Target::Event(_)))
+            }),
+            "start" => prev.is_some_and(|t| self.slice(t.span) == "on"),
+            "invoke" | "trigger" | "halt" => self.expr_at(span.start).is_some_and(|e| {
+                e.span.start == span.start
+                    && matches!(e.kind, ExprKind::Invoke { .. } | ExprKind::Halt { .. })
+            }),
+            "claim" => {
+                on_line && matches!(next_kind, Some(TokenKind::LBrace | TokenKind::LParen))
             }
+            "release" => on_line && next_kind == Some(TokenKind::LBrace),
             _ => false,
         }
     }
@@ -180,6 +201,16 @@ impl Analysis {
             }
             Target::EventKind(name) => {
                 markdown(name, [render::event_kind_doc(name).map(str::to_owned)])
+            }
+            Target::Seq(i) => {
+                let seq = &self.program.seqs[*i];
+                let steps = seq.steps.len();
+                let summary = format!(
+                    "A sequence of {steps} step{}. Start it with `invoke {}` in an `on` handler.",
+                    if steps == 1 { "" } else { "s" },
+                    seq.name.name
+                );
+                markdown(&self.render_seq(*i), [self.seq_doc(*i), Some(summary)])
             }
         };
         Some(HoverInfo {
@@ -312,6 +343,35 @@ rill osc(freq: Freq, gain: Gain = -6dB) Sample {
     fn at(needle: &str) -> Option<String> {
         let i = SRC.find(needle).unwrap_or_else(|| panic!("{needle}"));
         hover(&format!("{}${}", &SRC[..i], &SRC[i..]))
+    }
+
+    #[test]
+    fn sequences() {
+        let src = |at: &str| {
+            "// The main riff.\nseq riff(step: 1/8, tempo: 120bpm) { C4, _, E4 }\nevent lead note_on(sender: riff)\nrill v() Sample {\n    on lead(n) claim(tail: 2s) { }\n    on start { let id = invoke riff\n    trigger 2 id riff\n    halt riff }\n    return 0\n}"
+                .replacen(at, &format!("${at}"), 1)
+        };
+        let decl = "```rill\nseq riff(step: 1/8, tempo: 120bpm)\n```\n\nThe main riff.\n\nA sequence of 3 steps.";
+        assert!(hover(&src("riff(step")).unwrap().starts_with(decl));
+        assert!(
+            hover(&src("riff)")).unwrap().starts_with(decl),
+            "from a sender filter"
+        );
+        assert!(
+            hover(&src("riff\n")).unwrap().starts_with(decl),
+            "from `invoke`"
+        );
+        for (word, doc) in [
+            ("seq riff", "Declares a sequence"),
+            ("invoke", "Starts a sequence"),
+            ("trigger", "Starts a sequence at a step"),
+            ("halt", "Stops an instance"),
+            ("claim", "Makes a `note_on` handler run in one voice"),
+            ("start", "A built-in event"),
+        ] {
+            let h = hover(&src(word)).unwrap_or_default();
+            assert!(h.starts_with(doc), "{word}: {h}");
+        }
     }
 
     #[test]

@@ -21,12 +21,17 @@ pub enum Target {
     Event(usize),
     /// An event kind like `note_on`, in a declaration.
     EventKind(String),
+    /// A sequence, by index into the program's sequences.
+    Seq(usize),
 }
 
 impl Target {
     /// Declared in the document, so it can be renamed and jumped to.
     pub fn is_user(&self) -> bool {
-        matches!(self, Target::Def(_) | Target::Binding(_) | Target::Event(_))
+        matches!(
+            self,
+            Target::Def(_) | Target::Binding(_) | Target::Event(_) | Target::Seq(_)
+        )
     }
 }
 
@@ -70,6 +75,13 @@ impl Index {
                 });
             }
         }
+        for (i, s) in program.seqs.iter().enumerate() {
+            occurrences.push(Occurrence {
+                span: s.name.span,
+                target: Target::Seq(i),
+                is_decl: true,
+            });
+        }
         for (id, b) in checked.bindings.iter().enumerate() {
             occurrences.push(Occurrence {
                 span: b.span,
@@ -92,6 +104,7 @@ impl Index {
                 Resolution::Note => Target::Note(name()),
                 Resolution::Type => Target::Type(name()),
                 Resolution::Event(i) => Target::Event(*i),
+                Resolution::Seq(i) => Target::Seq(*i),
             };
             occurrences.push(Occurrence {
                 span,
