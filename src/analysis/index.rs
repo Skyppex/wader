@@ -1,9 +1,9 @@
 //! Every name in a document and what it refers to.
 
-use rill::lang::Span;
 use rill::lang::ast::Program;
 use rill::lang::check::{BindingId, Checked, Resolution};
 use rill::lang::lexer::{Token, TokenKind};
+use rill::lang::{SourceMap, Span};
 
 /// What a name refers to.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -58,7 +58,12 @@ pub struct Index {
 }
 
 impl Index {
-    pub fn new(text: &str, tokens: &[Token], program: &Program, checked: &Checked) -> Index {
+    pub fn new(
+        sources: &SourceMap,
+        tokens: &[Token],
+        program: &Program,
+        checked: &Checked,
+    ) -> Index {
         let mut occurrences = Vec::new();
         for (i, item) in program.items.iter().enumerate() {
             occurrences.push(Occurrence {
@@ -108,7 +113,7 @@ impl Index {
             let Some(span) = name_in(tokens, *span) else {
                 continue;
             };
-            let name = || text[span.start as usize..span.end as usize].to_owned();
+            let name = || sources.slice(span).to_owned();
             let target = match r {
                 Resolution::Binding(id) => Target::Binding(*id),
                 Resolution::Def(i) => Target::Def(*i),

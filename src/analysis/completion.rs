@@ -5,10 +5,11 @@
 
 use std::collections::HashSet;
 
+use rill::lang::Sources;
 use rill::lang::Span;
 use rill::lang::ast::ExprKind;
 use rill::lang::builtins;
-use rill::lang::check::{Binding, BindingKind};
+use rill::lang::check::{Binding, BindingKind, Global};
 use rill::lang::lexer::{Token, TokenKind, Unit};
 use rill::lang::types::{DefKind, Type, coerces};
 
@@ -34,6 +35,8 @@ enum Context {
     TopLevel,
     /// The value of a top-level `const`.
     ConstValue,
+    /// After `export`: what can be exported.
+    Exportable,
     Type,
     /// The unit of a number literal.
     Unit,
@@ -62,6 +65,9 @@ enum Context {
     Pipe(Option<Type>),
     /// After `riff.`: a field of a sequence.
     SeqField(usize),
+    /// Inside an import's quotes: the files and folders next to this one,
+    /// and the path typed so far.
+    ImportPath(String),
     Expr {
         /// At the start of a statement, where `let` and friends go.
         stmt_start: bool,
@@ -97,6 +103,9 @@ fn is_word(kind: TokenKind) -> bool {
             | TokenKind::Rill
             | TokenKind::State
             | TokenKind::Let
+            | TokenKind::Const
+            | TokenKind::Import
+            | TokenKind::Export
             | TokenKind::Return
             | TokenKind::If
             | TokenKind::Else
@@ -111,8 +120,12 @@ impl Analysis {
         let (replace, context) = self.completion_context(offset);
         let mut items = match context {
             Context::Nothing => Vec::new(),
-            Context::TopLevel => {
-                self.keyword_items(&["fn", "rill", "const", "event", "seq"], snippets)
+            Context::TopLevel => self.keyword_items(
+                &["fn", "rill", "const", "event", "seq", "import", "export"],
+                snippets,
+            ),
+            Context::Exportable => {
+                self.keyword_items(&["fn", "rill", "const", "event", "seq", "import"], snippets)
             }
             Context::ConstValue => {
                 let mut items = self.value_items(offset);
@@ -162,6 +175,7 @@ impl Analysis {
             Context::Unit => unit_items(),
             Context::Pipe(piped) => self.callable_items(offset, piped.as_ref()),
             Context::SeqField(seq) => self.seq_field_items(seq),
+            Context::ImportPath(typed) => self.import_path_items(&typed),
             Context::Expr { stmt_start } => {
                 let mut items = self.named_arg_items(offset);
                 items.extend(self.value_items(offset));
@@ -206,6 +220,18 @@ impl Analysis {
             .checked_sub(1)
             .map(|j| &self.tokens[j])
             .filter(|t| t.span.end >= offset && t.kind != TokenKind::Eof);
+        if let Some(t) = current.filter(|t| t.kind == TokenKind::Str) {
+            let text = self.slice(t.span);
+            let closed = text.len() > 1 && text.ends_with('"');
+            let inside = offset > t.span.start && (offset < t.span.end || !closed);
+            let after_import = i >= 2 && self.tokens[i - 2].kind == TokenKind::Import;
+            if !inside || !after_import {
+                return (here, Context::Nothing);
+            }
+            let start = t.span.start + 1;
+            let typed = self.text[start as usize..offset as usize].to_owned();
+            return (Span { start, end: offset }, Context::ImportPath(typed));
+        }
         let (replace, before) = match current {
             Some(t) if is_word(t.kind) => (
                 Span {
@@ -281,6 +307,12 @@ impl Analysis {
             return (replace, Context::EventFilter);
         }
 
+        if kind(prev) == Some(TokenKind::Export) {
+            return (replace, Context::Exportable);
+        }
+        if kind(prev) == Some(TokenKind::Import) {
+            return (replace, Context::Nothing);
+        }
         let context = match kind(prev) {
             // Naming something new.
             Some(
@@ -545,8 +577,52 @@ impl Analysis {
     }
 
     /// The program's sequences.
+    /// The modules that can be imported from here: `.rill` files with
+    /// names that are valid module names, without the extension, and the
+    /// folders that lead to more. `typed` is the path so far; its folders
+    /// are kept in every label.
+    fn import_path_items(&self, typed: &str) -> Vec<CompletionItem> {
+        let Some(here) = &self.path else {
+            return Vec::new();
+        };
+        let dir = here.parent().unwrap_or(std::path::Path::new(""));
+        let folder = typed.rfind('/').map_or("", |i| &typed[..=i]);
+        let Ok(entries) = std::fs::read_dir(dir.join(folder)) else {
+            return Vec::new();
+        };
+        let me = rill::lang::Disk.canonical(here);
+        let mut items = Vec::new();
+        if folder.split('/').all(|p| p.is_empty() || p == "..") {
+            items.push(item(&format!("{folder}../"), Kind::Folder, None, None, 2));
+        }
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let is_dir = path.is_dir();
+            let stem = match (is_dir, name.strip_suffix(".rill")) {
+                (true, _) => name.as_str(),
+                (false, Some(stem)) => stem,
+                (false, None) => continue,
+            };
+            // A name that cannot be imported is not offered.
+            if rill::lang::module::name_problem(stem).is_some()
+                || (!is_dir && rill::lang::Disk.canonical(&path) == me)
+            {
+                continue;
+            }
+            let (label, kind, sort) = match is_dir {
+                true => (format!("{folder}{stem}/"), Kind::Folder, 1),
+                false => (format!("{folder}{stem}"), Kind::File, 0),
+            };
+            let detail = (!is_dir).then(|| format!("{stem}.rill"));
+            items.push(item(&label, kind, detail, None, sort));
+        }
+        items
+    }
+
     fn seq_items(&self) -> Vec<CompletionItem> {
         (0..self.program.seqs.len())
+            .filter(|&i| self.visible(&self.program.seqs[i].name.name, Global::Seq(i)))
             .map(|i| {
                 item(
                     &self.program.seqs[i].name.name,
@@ -602,6 +678,9 @@ impl Analysis {
             .filter(|(i, _)| made || self.checked.seq_event(*i).is_none())
             .filter_map(|(i, d)| {
                 let d = d.as_ref()?;
+                if !self.visible(&d.name, Global::Event(i)) {
+                    return None;
+                }
                 Some(item(
                     &d.name,
                     Kind::Event,
@@ -738,6 +817,9 @@ impl Analysis {
             .collect();
         for i in 0..self.program.consts.len() {
             let name = &self.program.consts[i].name.name;
+            if !self.visible(name, Global::Const(i)) {
+                continue;
+            }
             items.push(item(
                 name,
                 Kind::Constant,
@@ -781,7 +863,10 @@ impl Analysis {
         let mut items = Vec::new();
         for (d, sig) in self.checked.signatures.iter().enumerate() {
             let is_rill = sig.kind == DefKind::Rill;
-            if (is_rill && !rills_allowed) || current == Some(d) {
+            if (is_rill && !rills_allowed)
+                || current == Some(d)
+                || !self.visible(&sig.name, Global::Def(d))
+            {
                 continue;
             }
             let fit = fits(sig.params.first().map(|p| &p.ty), is_rill);
@@ -941,6 +1026,7 @@ impl Analysis {
                     "event" => Some("event ${1:name} ${2|note_on,note_off,control_change|}"),
                     "on" => Some("on ${1:event}(${2:note}) {\n\t$0\n}"),
                     "seq" => Some("seq ${1:name}(step: ${2:1/8}) {\n\t$0\n}"),
+                    "import" => Some("import \"$0\""),
                     _ => None,
                 };
                 let mut it = item(k, Kind::Keyword, None, keyword_doc(k).map(str::to_owned), 4);
@@ -1290,7 +1376,10 @@ mod tests {
     #[test]
     fn top_level() {
         let got = labels(&format!("{HEAD}\n$"));
-        assert_eq!(got, ["const", "event", "fn", "rill", "seq"]);
+        assert_eq!(
+            got,
+            ["const", "event", "export", "fn", "import", "rill", "seq"]
+        );
         let c = complete(&format!("{HEAD}\nri$"));
         let rill = c.items.iter().find(|i| i.label == "rill").unwrap();
         assert_eq!(rill.insert_text_format, Some(InsertTextFormat::Snippet));

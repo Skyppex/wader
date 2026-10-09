@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use rill::lang::Span;
 use rill::lang::lexer::{self, TokenKind};
 
-use super::Analysis;
 use super::index::Target;
+use super::{Analysis, InMemory};
+use rill::lang::module::normalize;
 
 /// Why a rename cannot happen.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,11 +91,31 @@ impl Analysis {
         old: &str,
         new: &str,
     ) -> Result<(), RenameError> {
-        let mut text = self.text.clone();
+        // Every file with its edits made, the document first.
+        let mut texts: Vec<String> = self.sources.files.iter().map(|f| f.text.clone()).collect();
         for (span, name) in edits.iter().rev() {
-            text.replace_range(span.start as usize..span.end as usize, name);
+            let Some(i) = self.sources.file_at(span.start) else {
+                continue;
+            };
+            let base = self.sources.files[i].base;
+            texts[i].replace_range(
+                (span.start - base) as usize..(span.end - base) as usize,
+                name,
+            );
         }
-        let after = Analysis::new(&text);
+        let after = match &self.path {
+            None => Analysis::new(&texts[0]),
+            Some(path) => {
+                let files = self
+                    .sources
+                    .files
+                    .iter()
+                    .zip(&texts)
+                    .filter_map(|(f, t)| Some((normalize(f.path.as_deref()?), t.clone())))
+                    .collect();
+                Analysis::for_file(path, &texts[0], &InMemory(files))
+            }
+        };
         let refused = || {
             RenameError(format!(
                 "renaming `{old}` to `{new}` would change what other names refer to"

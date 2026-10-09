@@ -6,3 +6,4 @@ pub mod document;
 pub mod lsp;
 pub mod rpc;
 pub mod server;
+pub mod uri;

@@ -144,6 +144,8 @@ pub struct ServerCapabilities {
     pub references_provider: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rename_provider: Option<RenameProvider>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<super::WorkspaceServerCapabilities>,
 }
 
 /// `true`, or options. Options are only allowed if the client said it

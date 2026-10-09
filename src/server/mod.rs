@@ -70,11 +70,38 @@ pub struct Open {
     pub analysis: Analysis,
 }
 
+/// Files as the editor has them: an open document's text, otherwise the
+/// disk.
+struct OpenFiles<'a> {
+    docs: &'a HashMap<Uri, Open>,
+}
+
+impl rill::lang::Sources for OpenFiles<'_> {
+    fn read(&self, path: &std::path::Path) -> io::Result<String> {
+        let wanted = self.canonical(path);
+        for (uri, open) in self.docs {
+            if let Some(p) = crate::uri::to_path(uri)
+                && self.canonical(&p) == wanted
+            {
+                return Ok(open.doc.text.clone());
+            }
+        }
+        std::fs::read_to_string(path)
+    }
+
+    fn canonical(&self, path: &std::path::Path) -> std::path::PathBuf {
+        rill::lang::Disk.canonical(path)
+    }
+}
+
 pub struct Server {
     phase: Phase,
     encoding: Encoding,
     client: ClientSupport,
     docs: HashMap<Uri, Open>,
+    /// The folder the editor opened, if it said; renaming something a file
+    /// exports looks here for the files that import it.
+    root: Option<std::path::PathBuf>,
     /// Messages to send once the current one is handled.
     outbox: Vec<Message>,
     /// Set by `exit`: the process exit code.
@@ -94,6 +121,7 @@ impl Server {
             encoding: Encoding::default(),
             client: ClientSupport::default(),
             docs: HashMap::new(),
+            root: None,
             outbox: Vec::new(),
             exit: None,
         }
@@ -127,6 +155,48 @@ impl Server {
             }
             .into(),
         );
+    }
+
+    /// Analyse `text` as the document at `uri`, reading what it imports
+    /// from the open documents and the disk.
+    fn analyze(&self, uri: &Uri, text: &str) -> Analysis {
+        match crate::uri::to_path(uri) {
+            Some(path) => Analysis::for_file(&path, text, &OpenFiles { docs: &self.docs }),
+            None => Analysis::new(text),
+        }
+    }
+
+    /// Analyse again every open document other than `changed` that
+    /// imports it, directly or not, and publish their diagnostics.
+    fn refresh_importers(&mut self, changed: &Uri) {
+        let Some(path) = crate::uri::to_path(changed) else {
+            return;
+        };
+        let canonical = |p: &std::path::Path| rill::lang::Sources::canonical(&rill::lang::Disk, p);
+        let wanted = canonical(&path);
+        let importers: Vec<Uri> = self
+            .docs
+            .iter()
+            .filter(|(uri, open)| {
+                *uri != changed
+                    && open
+                        .analysis
+                        .sources
+                        .files
+                        .iter()
+                        .skip(1)
+                        .any(|f| f.path.as_deref().is_some_and(|p| canonical(p) == wanted))
+            })
+            .map(|(uri, _)| uri.clone())
+            .collect();
+        for uri in importers {
+            let text = self.docs[&uri].doc.text.clone();
+            let analysis = self.analyze(&uri, &text);
+            if let Some(open) = self.docs.get_mut(&uri) {
+                open.analysis = analysis;
+            }
+            self.publish_diagnostics(&uri);
+        }
     }
 
     fn publish_diagnostics(&mut self, uri: &Uri) {

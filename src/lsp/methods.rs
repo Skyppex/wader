@@ -46,6 +46,7 @@ pub mod request {
         References "textDocument/references" (ReferenceParams) -> Option<Vec<Location>>;
         PrepareRename "textDocument/prepareRename" (PrepareRenameParams) -> Option<PrepareRenameResult>;
         Rename "textDocument/rename" (RenameParams) -> Option<WorkspaceEdit>;
+        WillRenameFiles "workspace/willRenameFiles" (RenameFilesParams) -> Option<WorkspaceEdit>;
     }
 }
 
@@ -60,6 +61,7 @@ pub mod notification {
         DidChangeTextDocument "textDocument/didChange" (DidChangeTextDocumentParams);
         DidCloseTextDocument "textDocument/didClose" (DidCloseTextDocumentParams);
         DidSaveTextDocument "textDocument/didSave" (DidSaveTextDocumentParams);
+        DidRenameFiles "workspace/didRenameFiles" (RenameFilesParams);
         PublishDiagnostics "textDocument/publishDiagnostics" (PublishDiagnosticsParams);
         LogMessage "window/logMessage" (LogMessageParams);
         ShowMessage "window/showMessage" (ShowMessageParams);

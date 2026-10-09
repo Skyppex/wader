@@ -5,7 +5,8 @@ use rill::lang::builtins;
 use rill::lang::check::{Binding, BindingKind};
 use rill::lang::types::{DefKind, Signature, Type};
 
-use super::{Analysis, docs};
+use super::Analysis;
+use rill::lang::Span;
 
 /// A signature as text, with each parameter's span (byte offsets into the
 /// text), for highlighting the active one.
@@ -100,7 +101,7 @@ impl Analysis {
     /// The doc comment of the fn or rill at `index`.
     pub fn def_doc(&self, index: usize) -> Option<String> {
         let def = self.def(index);
-        docs::comment(&self.text, def.span.start, def.name.span.end)
+        self.doc_comment(def.span.start, def.name.span.end)
     }
 
     /// The doc comment of a binding: above its line, or trailing it.
@@ -114,6 +115,12 @@ impl Analysis {
                 let end = p.default.as_ref().map_or(p.ty.span().end, |d| d.span.end);
                 (p.name.span.start, end)
             }
+            // Locals of other files are never shown from this one.
+            BindingKind::Let | BindingKind::State | BindingKind::Const
+                if !self.in_document(b.span) =>
+            {
+                return None;
+            }
             BindingKind::Let | BindingKind::State | BindingKind::Const => {
                 let line_start = self.text[..b.span.start as usize]
                     .rfind('\n')
@@ -124,7 +131,7 @@ impl Analysis {
             }
             BindingKind::Size | BindingKind::FnParam | BindingKind::EventParam => return None,
         };
-        docs::comment(&self.text, start, end)
+        self.doc_comment(start, end)
     }
 
     /// How a binding is declared, as code: `let a: Sample`.
@@ -146,7 +153,10 @@ impl Analysis {
             BindingKind::State => format!("state {}: {}", b.name, b.ty),
             BindingKind::Const => {
                 // A `const` is visible from the end of its declaration.
-                let decl = &self.text[b.span.end as usize..b.scope.start as usize];
+                let decl = self.slice(Span {
+                    start: b.span.end,
+                    end: b.scope.start,
+                });
                 let value = decl.split_once('=').map_or("", |(_, v)| v.trim());
                 const_label(&b.name, &b.ty, value, None)
             }
@@ -204,13 +214,13 @@ impl Analysis {
     /// The doc comment of the top-level `const` at `index`.
     pub fn const_doc(&self, index: usize) -> Option<String> {
         let c = &self.program.consts[index];
-        docs::comment(&self.text, c.span.start, c.name.span.end)
+        self.doc_comment(c.span.start, c.name.span.end)
     }
 
     /// The doc comment of the sequence at `index`.
     pub fn seq_doc(&self, index: usize) -> Option<String> {
         let s = &self.program.seqs[index];
-        docs::comment(&self.text, s.span.start, s.name.span.end)
+        self.doc_comment(s.span.start, s.name.span.end)
     }
 
     /// The doc comment of the event declaration at `index`; for one a
@@ -225,7 +235,7 @@ impl Analysis {
             ));
         }
         let e = &self.program.events[index];
-        docs::comment(&self.text, e.span.start, e.name.span.end)
+        self.doc_comment(e.span.start, e.name.span.end)
     }
 
     /// The `on` handler whose payload parameter is declared at `span`.
@@ -389,6 +399,12 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
             "A variable that keeps its value between ticks. Only at the top of a rill body, with a constant initial value."
         }
         "let" => "Binds a value. A stream bound with `let` and used twice is one instance.",
+        "import" => {
+            "Uses another file: `import \"lib/osc\"` reads `lib/osc.rill` next to this file, without writing `.rill`. Only what that file exports can be used here."
+        }
+        "export" => {
+            "Makes a top-level `fn`, `rill`, `const`, `event` or `seq` usable by files that import this one. `export import \"osc\"` passes on everything `osc` exports."
+        }
         "const" => {
             "Names a value worked out once, when the program is built: `const VOICES = 8`. At the top level it belongs to the file; in a block, to the block. A whole number can be a size, as in `[Float; VOICES]`."
         }

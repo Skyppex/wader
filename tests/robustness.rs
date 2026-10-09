@@ -18,10 +18,12 @@ fn every_feature(a: &Analysis, offset: u32) {
 }
 
 fn examples() -> Vec<(String, String)> {
-    std::fs::read_dir(common::examples_dir())
-        .unwrap()
-        .map(|e| {
-            let path = e.unwrap().path();
+    let dir = common::examples_dir();
+    let read = |dir: std::path::PathBuf| std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path());
+    read(dir.clone())
+        .chain(read(dir.join("modules")))
+        .filter(|p| p.extension().is_some_and(|e| e == "rill"))
+        .map(|path| {
             let text = std::fs::read_to_string(&path).unwrap();
             (path.display().to_string(), text)
         })

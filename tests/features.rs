@@ -154,6 +154,9 @@ fn renaming_anything_in_the_examples_keeps_them_valid() {
     let mut count = 0;
     for entry in std::fs::read_dir(common::examples_dir()).unwrap() {
         let path = entry.unwrap().path();
+        if path.extension().is_none_or(|e| e != "rill") {
+            continue;
+        }
         let text = std::fs::read_to_string(&path).unwrap();
         let a = Analysis::new(&text);
         assert!(a.diagnostics.is_empty(), "{}", path.display());
@@ -206,9 +209,55 @@ fn renaming_anything_in_the_examples_keeps_them_valid() {
             );
             assert!(matches!(
                 occ.target,
-                Target::Def(_) | Target::Binding(_) | Target::Event(_) | Target::Seq(_)
+                Target::Def(_)
+                    | Target::Binding(_)
+                    | Target::Event(_)
+                    | Target::Seq(_)
+                    | Target::Const(_)
             ));
         }
     }
     assert!(count > 50, "only {count} names renamed");
+}
+
+/// The same for the example made of several files: every name in each
+/// file can be renamed, everywhere it is used in that file and the files it
+/// imports, and the program stays valid (the rename itself refuses anything
+/// else).
+#[test]
+fn renaming_across_the_files_of_an_example() {
+    let dir = common::examples_dir().join("modules");
+    let mut count = 0;
+    let mut across = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let a = Analysis::for_file(&path, &text, &rill::lang::Disk);
+        assert!(
+            a.diagnostics.iter().all(|d| !d.is_error()),
+            "{}: {:?}",
+            path.display(),
+            a.diagnostics
+        );
+        // Names declared here, and uses here of names from other files.
+        let wanted = |o: &&wader::analysis::index::Occurrence| {
+            a.in_document(o.span) && o.target.is_user() && a.prepare_rename(o.span.start).is_ok()
+        };
+        let mut seen = Vec::new();
+        for occ in a.index.all().iter().filter(wanted) {
+            if seen.contains(&occ.target) {
+                continue;
+            }
+            seen.push(occ.target.clone());
+            let edits = a
+                .rename(occ.span.start, &format!("renamed_{count}"))
+                .unwrap_or_else(|e| panic!("{}: {:?}: {}", path.display(), occ, e.0));
+            count += 1;
+            if edits.iter().any(|(s, _)| !a.in_document(*s)) {
+                across += 1;
+            }
+        }
+    }
+    assert!(count > 20, "only {count} names renamed");
+    assert!(across > 5, "only {across} renames reached other files");
 }

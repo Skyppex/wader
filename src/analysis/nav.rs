@@ -8,6 +8,20 @@ impl Analysis {
     /// Where the name at `offset` is defined. Built-ins have no source, so
     /// they have no definition.
     pub fn definition(&self, offset: u32) -> Option<Span> {
+        // An import's path leads to the start of the file.
+        if let Some(target) = self
+            .program
+            .imports
+            .iter()
+            .find(|i| i.path_span.start <= offset && offset <= i.path_span.end)
+            .and_then(|i| i.module)
+        {
+            let base = self.sources.files.get(target as usize)?.base;
+            return Some(Span {
+                start: base,
+                end: base,
+            });
+        }
         let occ = self.index.at(offset)?;
         // An event a sequence makes is defined by the sequence.
         if let super::index::Target::Event(i) = occ.target

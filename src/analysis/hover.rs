@@ -68,7 +68,11 @@ impl Analysis {
                 None => self.hover_builtin_arg(offset, span)?,
             },
             TokenKind::Eof => return None,
+            TokenKind::Str => self.hover_import(span)?,
             TokenKind::Fn
+            | TokenKind::Const
+            | TokenKind::Import
+            | TokenKind::Export
             | TokenKind::Rill
             | TokenKind::State
             | TokenKind::Let
@@ -139,7 +143,10 @@ impl Analysis {
 
     fn hover_name(&self, occ: &Occurrence) -> Option<HoverInfo> {
         let contents = match &occ.target {
-            Target::Def(i) => markdown(&self.render_def(*i).label, [self.def_doc(*i)]),
+            Target::Def(i) => markdown(
+                &self.render_def(*i).label,
+                [self.def_doc(*i), self.origin_note(self.item_module(*i))],
+            ),
             Target::Binding(id) => {
                 let b = &self.checked.bindings[*id];
                 let owner = match b.kind {
@@ -211,7 +218,13 @@ impl Analysis {
             Target::EventKind(name) => {
                 markdown(name, [render::event_kind_doc(name).map(str::to_owned)])
             }
-            Target::Const(i) => markdown(&self.render_const(*i), [self.const_doc(*i)]),
+            Target::Const(i) => markdown(
+                &self.render_const(*i),
+                [
+                    self.const_doc(*i),
+                    self.origin_note(self.program.modules.konst(*i)),
+                ],
+            ),
             Target::Seq(i) => {
                 let seq = &self.program.seqs[*i];
                 let steps = seq.steps.len();
@@ -220,13 +233,91 @@ impl Analysis {
                     if steps == 1 { "" } else { "s" },
                     seq.name.name
                 );
-                markdown(&self.render_seq(*i), [self.seq_doc(*i), Some(summary)])
+                markdown(
+                    &self.render_seq(*i),
+                    [
+                        self.seq_doc(*i),
+                        Some(summary),
+                        self.origin_note(self.program.modules.seq(*i)),
+                    ],
+                )
             }
         };
         Some(HoverInfo {
             contents,
             span: occ.span,
         })
+    }
+
+    /// Where something declared in another file comes from.
+    fn origin_note(&self, module: usize) -> Option<String> {
+        (module != 0).then(|| format!("From \"{}\".", self.program.modules.name(module)))
+    }
+
+    /// An `import`'s path: the file, and what it gives.
+    fn hover_import(&self, span: Span) -> Option<String> {
+        let (k, import) = self
+            .program
+            .imports
+            .iter()
+            .enumerate()
+            .find(|(_, i)| i.path_span == span)?;
+        let target = import.module? as usize;
+        let file = &self.sources.files.get(target)?.display;
+        let modules = &self.program.modules;
+        let mut names: Vec<&str> = Vec::new();
+        for (i, item) in self.program.items.iter().enumerate() {
+            if modules.item(i) == target && item.def().export.is_some() {
+                names.push(&item.def().name.name);
+            }
+        }
+        for (j, seq) in self.program.seqs.iter().enumerate() {
+            if modules.seq(j) == target && seq.export.is_some() {
+                names.push(&seq.name.name);
+            }
+        }
+        for (i, c) in self.program.consts.iter().enumerate() {
+            if modules.konst(i) == target && c.export.is_some() {
+                names.push(&c.name.name);
+            }
+        }
+        for (i, e) in self.program.events.iter().enumerate() {
+            if modules.event(i) == target && e.export.is_some() {
+                names.push(&e.name.name);
+            }
+        }
+        let passes_on: Vec<String> = self
+            .program
+            .imports
+            .iter()
+            .enumerate()
+            .filter(|&(j, i)| modules.import(j) == target && i.export.is_some())
+            .map(|(_, i)| format!("\"{}\"", i.path))
+            .collect();
+        let list = |xs: Vec<String>| xs.join(", ");
+        let exports = match names.is_empty() {
+            true => "Exports nothing.".to_owned(),
+            false => format!(
+                "Exports {}.",
+                list(names.iter().map(|n| format!("`{n}`")).collect())
+            ),
+        };
+        let passes = (!passes_on.is_empty()).then(|| format!("Passes on {}.", list(passes_on)));
+        let how = if import.export.is_some() {
+            "Everything it gives is passed on to files importing this one."
+        } else {
+            "Only this file sees what it gives."
+        };
+        let _ = k;
+        Some(markdown(
+            &format!("import \"{}\"", import.path),
+            [
+                Some(format!("`{file}`")),
+                Some(exports),
+                passes,
+                Some(how.to_owned()),
+            ],
+        ))
     }
 
     /// A number literal, as `operand` (the literal, or its negation).

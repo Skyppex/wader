@@ -114,6 +114,9 @@ impl Server {
             r::References::METHOD => self.call::<r::References>(p, Server::references),
             r::PrepareRename::METHOD => self.call::<r::PrepareRename>(p, Server::prepare_rename),
             r::Rename::METHOD => self.call::<r::Rename>(p, Server::rename),
+            r::WillRenameFiles::METHOD => {
+                self.call::<r::WillRenameFiles>(p, Server::will_rename_files)
+            }
             _ => Err(error(
                 ErrorCode::METHOD_NOT_FOUND,
                 format!("unknown method `{method}`"),
@@ -149,6 +152,9 @@ impl Server {
                 self.call_notification::<n::DidCloseTextDocument>(p, Server::did_close)
             }
             n::DidSaveTextDocument::METHOD => {}
+            n::DidRenameFiles::METHOD => {
+                self.call_notification::<n::DidRenameFiles>(p, Server::did_rename_files)
+            }
             // Every request is answered before the next is read, so there
             // is never anything to cancel.
             n::Cancel::METHOD => {}

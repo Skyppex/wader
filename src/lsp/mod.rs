@@ -53,6 +53,7 @@ macro_rules! int_enum {
 mod base;
 mod completion;
 mod diagnostic;
+mod files;
 mod hover;
 mod lifecycle;
 pub mod methods;
@@ -65,6 +66,7 @@ mod window;
 pub use base::*;
 pub use completion::*;
 pub use diagnostic::*;
+pub use files::*;
 pub use hover::*;
 pub use lifecycle::*;
 pub use methods::{Notification, Request, notification, request};
