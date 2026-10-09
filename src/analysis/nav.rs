@@ -152,4 +152,13 @@ rill main(freq: Freq = 440Hz) Sample {
         let (a, o) = at(src);
         assert_eq!(a.definition(o).map(|d| d.start as usize), src.find("gain"));
     }
+
+    #[test]
+    fn a_const_is_defined_where_it_is_declared() {
+        let (a, offset) =
+            at("const VOICES = 8\nrill main() Sample {\n    let x = [0; $VOICES]\n    return 0\n}");
+        let def = a.definition(offset).unwrap();
+        assert_eq!((def.start, a.slice(def)), (6, "VOICES"));
+        assert_eq!(a.references(offset, true).len(), 2);
+    }
 }

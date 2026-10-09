@@ -32,6 +32,8 @@ enum Context {
     Nothing,
     /// Between definitions.
     TopLevel,
+    /// The value of a top-level `const`.
+    ConstValue,
     Type,
     /// The unit of a number literal.
     Unit,
@@ -109,7 +111,21 @@ impl Analysis {
         let (replace, context) = self.completion_context(offset);
         let mut items = match context {
             Context::Nothing => Vec::new(),
-            Context::TopLevel => self.keyword_items(&["fn", "rill", "event", "seq"], snippets),
+            Context::TopLevel => {
+                self.keyword_items(&["fn", "rill", "const", "event", "seq"], snippets)
+            }
+            Context::ConstValue => {
+                let mut items = self.value_items(offset);
+                // A `const` is worked out before any fn or rill runs.
+                items.extend(self.callable_items(offset, None).into_iter().filter(|i| {
+                    !self
+                        .program
+                        .items
+                        .iter()
+                        .any(|d| d.def().name.name == i.label)
+                }));
+                items
+            }
             Context::SeqSetting => SEQ_SETTINGS
                 .iter()
                 .map(|(name, ty, doc)| {
@@ -161,7 +177,7 @@ impl Analysis {
                     }
                 }
                 if stmt_start {
-                    keywords.extend(["let", "return"]);
+                    keywords.extend(["let", "const", "return"]);
                     if self.in_rill_body(offset) {
                         keywords.extend(["state", "on"]);
                     }
@@ -267,9 +283,13 @@ impl Analysis {
 
         let context = match kind(prev) {
             // Naming something new.
-            Some(TokenKind::Let | TokenKind::State | TokenKind::Rill | TokenKind::Fn) => {
-                Context::Nothing
-            }
+            Some(
+                TokenKind::Let
+                | TokenKind::State
+                | TokenKind::Const
+                | TokenKind::Rill
+                | TokenKind::Fn,
+            ) => Context::Nothing,
             Some(TokenKind::Lt) if self.in_def_signature(offset) => Context::Nothing,
             Some(TokenKind::LParen | TokenKind::Comma) if self.in_param_list(before) => {
                 Context::Nothing
@@ -279,7 +299,10 @@ impl Analysis {
             Some(TokenKind::RParen) if self.in_param_list(before - 1) => Context::Type,
             Some(TokenKind::LBracket) if self.opens_frame_type(before - 1) => Context::Type,
             Some(TokenKind::Colon) => {
-                let let_like = matches!(kind(prev3), Some(TokenKind::Let | TokenKind::State));
+                let let_like = matches!(
+                    kind(prev3),
+                    Some(TokenKind::Let | TokenKind::State | TokenKind::Const)
+                );
                 if let_like || self.in_param_list(before - 2) {
                     Context::Type
                 } else {
@@ -296,7 +319,9 @@ impl Analysis {
             {
                 // Outside any body: between definitions, or in a signature
                 // that did not parse.
-                if self.def_at(offset).is_some() {
+                if self.in_top_const_value(before) {
+                    Context::ConstValue
+                } else if self.def_at(offset).is_some() {
                     Context::Nothing
                 } else {
                     Context::TopLevel
@@ -314,6 +339,21 @@ impl Analysis {
             }
         };
         (replace, context)
+    }
+
+    /// After the `=` of a top-level `const`, on its line, before token
+    /// `before`.
+    fn in_top_const_value(&self, before: usize) -> bool {
+        let line_start = (0..before)
+            .rev()
+            .find(|&j| self.tokens[j].newline_before || j == 0);
+        let Some(start) = line_start else {
+            return false;
+        };
+        self.tokens[start].kind == TokenKind::Const
+            && self.tokens[start..before]
+                .iter()
+                .any(|t| t.kind == TokenKind::Assign)
     }
 
     /// Inside a `//` or `/* */` comment.
@@ -696,6 +736,16 @@ impl Analysis {
                 )
             })
             .collect();
+        for i in 0..self.program.consts.len() {
+            let name = &self.program.consts[i].name.name;
+            items.push(item(
+                name,
+                Kind::Constant,
+                Some(self.render_const(i)),
+                self.const_doc(i),
+                1,
+            ));
+        }
         for (name, ty) in builtins::CONSTANTS {
             let doc = builtins::doc(name).map(str::to_owned);
             items.push(item(name, Kind::Constant, Some(ty.to_string()), doc, 3));
@@ -1240,9 +1290,25 @@ mod tests {
     #[test]
     fn top_level() {
         let got = labels(&format!("{HEAD}\n$"));
-        assert_eq!(got, ["event", "fn", "rill", "seq"]);
+        assert_eq!(got, ["const", "event", "fn", "rill", "seq"]);
         let c = complete(&format!("{HEAD}\nri$"));
         let rill = c.items.iter().find(|i| i.label == "rill").unwrap();
         assert_eq!(rill.insert_text_format, Some(InsertTextFormat::Snippet));
+    }
+
+    #[test]
+    fn consts() {
+        has("$", &["const"]);
+        has("rill f() Sample {\n    $\n}", &["const"]);
+        let src = "const VOICES = 8\nfn half(x: Float) Float { x / 2 }\n";
+        has(
+            &format!("{src}rill f() Sample {{\n    return $\n}}"),
+            &["VOICES"],
+        );
+        // A `const`'s value can use other `const`s and built-ins, not fns.
+        has(&format!("{src}const K = $"), &["VOICES", "sin", "RATE"]);
+        lacks(&format!("{src}const K = $"), &["half", "const"]);
+        lacks(&format!("{src}const $"), &["VOICES", "const"]);
+        has(&format!("{src}const K: $"), &["Float"]);
     }
 }

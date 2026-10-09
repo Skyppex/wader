@@ -23,6 +23,8 @@ pub enum Target {
     EventKind(String),
     /// A sequence, by index into the program's sequences.
     Seq(usize),
+    /// A top-level `const`, by index into the program's `const`s.
+    Const(usize),
 }
 
 impl Target {
@@ -30,7 +32,11 @@ impl Target {
     pub fn is_user(&self) -> bool {
         matches!(
             self,
-            Target::Def(_) | Target::Binding(_) | Target::Event(_) | Target::Seq(_)
+            Target::Def(_)
+                | Target::Binding(_)
+                | Target::Event(_)
+                | Target::Seq(_)
+                | Target::Const(_)
         )
     }
 }
@@ -82,6 +88,13 @@ impl Index {
                 is_decl: true,
             });
         }
+        for (i, c) in program.consts.iter().enumerate() {
+            occurrences.push(Occurrence {
+                span: c.name.span,
+                target: Target::Const(i),
+                is_decl: true,
+            });
+        }
         for (id, b) in checked.bindings.iter().enumerate() {
             occurrences.push(Occurrence {
                 span: b.span,
@@ -105,6 +118,7 @@ impl Index {
                 Resolution::Type => Target::Type(name()),
                 Resolution::Event(i) => Target::Event(*i),
                 Resolution::Seq(i) => Target::Seq(*i),
+                Resolution::Const(i) => Target::Const(*i),
             };
             occurrences.push(Occurrence {
                 span,

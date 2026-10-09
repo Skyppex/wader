@@ -29,7 +29,11 @@ impl Analysis {
             )));
         }
         let what = match &occ.target {
-            Target::Def(_) | Target::Binding(_) | Target::Event(_) | Target::Seq(_) => {
+            Target::Def(_)
+            | Target::Binding(_)
+            | Target::Event(_)
+            | Target::Seq(_)
+            | Target::Const(_) => {
                 return Ok(Some((occ.span, name)));
             }
             Target::Builtin(_) => "built-in function",
@@ -310,5 +314,20 @@ rill main() Sample {
     #[test]
     fn renaming_to_the_same_name_is_a_no_op() {
         assert_eq!(rename(&cursor("osc", 0), "osc").unwrap(), SRC);
+    }
+
+    #[test]
+    fn consts() {
+        let src =
+            "const $LEVEL = 0.5\nrill main() Sample {\n    let x = [LEVEL; 2]\n    return LEVEL\n}";
+        assert_eq!(
+            rename(src, "GAIN").unwrap(),
+            "const GAIN = 0.5\nrill main() Sample {\n    let x = [GAIN; 2]\n    return GAIN\n}"
+        );
+        let src = "rill main() Sample {\n    const $K = 2\n    return K\n}";
+        assert_eq!(
+            rename(src, "J").unwrap(),
+            "rill main() Sample {\n    const J = 2\n    return J\n}"
+        );
     }
 }

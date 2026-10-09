@@ -114,7 +114,7 @@ impl Analysis {
                 let end = p.default.as_ref().map_or(p.ty.span().end, |d| d.span.end);
                 (p.name.span.start, end)
             }
-            BindingKind::Let | BindingKind::State => {
+            BindingKind::Let | BindingKind::State | BindingKind::Const => {
                 let line_start = self.text[..b.span.start as usize]
                     .rfind('\n')
                     .map_or(0, |i| i + 1);
@@ -144,6 +144,12 @@ impl Analysis {
             BindingKind::Size => format!("<{}>", b.name),
             BindingKind::Let => format!("let {}: {}", b.name, b.ty),
             BindingKind::State => format!("state {}: {}", b.name, b.ty),
+            BindingKind::Const => {
+                // A `const` is visible from the end of its declaration.
+                let decl = &self.text[b.span.end as usize..b.scope.start as usize];
+                let value = decl.split_once('=').map_or("", |(_, v)| v.trim());
+                const_label(&b.name, &b.ty, value, None)
+            }
             BindingKind::FnParam | BindingKind::EventParam => format!("{}: {}", b.name, b.ty),
         }
     }
@@ -183,6 +189,22 @@ impl Analysis {
             out += &format!("({})", settings.join(", "));
         }
         out
+    }
+
+    /// A top-level `const` as code: `const VOICES = 8`, with its value when
+    /// it is worked out from others: `const VOICES = HALF * 2 // 8`.
+    pub fn render_const(&self, index: usize) -> String {
+        let c = &self.program.consts[index];
+        let info = self.checked.consts.get(index);
+        let ty = info.map_or(rill::lang::types::Type::Error, |i| i.ty.clone());
+        let value = info.and_then(|i| i.value);
+        const_label(&c.name.name, &ty, self.slice(c.value.span), value)
+    }
+
+    /// The doc comment of the top-level `const` at `index`.
+    pub fn const_doc(&self, index: usize) -> Option<String> {
+        let c = &self.program.consts[index];
+        docs::comment(&self.text, c.span.start, c.name.span.end)
     }
 
     /// The doc comment of the sequence at `index`.
@@ -367,6 +389,9 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
             "A variable that keeps its value between ticks. Only at the top of a rill body, with a constant initial value."
         }
         "let" => "Binds a value. A stream bound with `let` and used twice is one instance.",
+        "const" => {
+            "Names a value worked out once, when the program is built: `const VOICES = 8`. At the top level it belongs to the file; in a block, to the block. A whole number can be a size, as in `[Float; VOICES]`."
+        }
         "return" => {
             "Produces the output for this tick. Every path through a rill returns exactly once."
         }
@@ -420,6 +445,36 @@ pub fn unit_doc(unit: &str) -> Option<&'static str> {
         "dB" => "decibels",
         _ => return None,
     })
+}
+
+/// `const NAME: Type = value`. A plain number's type is left out, as it
+/// takes the type of wherever it is used. A long value is shortened, and a
+/// value worked out from other names is shown after it.
+fn const_label(
+    name: &str,
+    ty: &rill::lang::types::Type,
+    value: &str,
+    worked_out: Option<f64>,
+) -> String {
+    let ty = match ty {
+        rill::lang::types::Type::Num | rill::lang::types::Type::Error => String::new(),
+        t => format!(": {t}"),
+    };
+    let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out = match value.chars().count() {
+        0 => format!("const {name}{ty}"),
+        n if n > 60 => format!(
+            "const {name}{ty} = {}…",
+            value.chars().take(59).collect::<String>()
+        ),
+        _ => format!("const {name}{ty} = {value}"),
+    };
+    if let Some(v) = worked_out
+        && value.parse::<f64>().is_err()
+    {
+        out += &format!(" // {v}");
+    }
+    out
 }
 
 #[cfg(test)]

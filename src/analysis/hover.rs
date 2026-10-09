@@ -157,7 +157,7 @@ impl Analysis {
                     BindingKind::EventParam => self
                         .handler_of(b)
                         .map(|name| format!("the payload of event `{}`", name.name)),
-                    BindingKind::Let | BindingKind::State => None,
+                    BindingKind::Let | BindingKind::State | BindingKind::Const => None,
                 };
                 let payload = match b.kind {
                     BindingKind::EventParam => type_doc(&b.ty.to_string()).map(str::to_owned),
@@ -211,6 +211,7 @@ impl Analysis {
             Target::EventKind(name) => {
                 markdown(name, [render::event_kind_doc(name).map(str::to_owned)])
             }
+            Target::Const(i) => markdown(&self.render_const(*i), [self.const_doc(*i)]),
             Target::Seq(i) => {
                 let seq = &self.program.seqs[*i];
                 let steps = seq.steps.len();
@@ -597,5 +598,22 @@ rill osc(freq: Freq, gain: Gain = -6dB) Sample {
         )
         .unwrap();
         assert!(h.starts_with("```rill\ngain: Float\n```"), "{h}");
+    }
+
+    #[test]
+    fn consts() {
+        let src = "// How many voices.\nconst VOICES = HALF * 2\nconst HALF = 4\nconst ROOT: Pitch = C3\n\
+                   rill main() Sample {\n    const K = VOICES - 1\n    let x = [0; VOICES]\n    return K + ROOT / 1st\n}";
+        let at = |needle: &str, nth: usize| {
+            let i = src.match_indices(needle).nth(nth).unwrap().0;
+            hover(&format!("{}${}", &src[..i], &src[i..]))
+        };
+        let voices = at("VOICES", 1).unwrap();
+        assert!(voices.contains("const VOICES = HALF * 2 // 8"), "{voices}");
+        assert!(voices.contains("How many voices."), "{voices}");
+        assert!(at("HALF", 1).unwrap().contains("const HALF = 4\n"));
+        assert!(at("ROOT", 1).unwrap().contains("const ROOT: Pitch = C3"));
+        let k = at("K +", 0).unwrap();
+        assert!(k.contains("const K = VOICES - 1"), "{k}");
     }
 }

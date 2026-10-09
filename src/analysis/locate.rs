@@ -20,6 +20,7 @@ pub fn walk_block<'a>(block: &'a Block, f: &mut impl FnMut(&'a Expr)) {
                 }
             }
             Stmt::State { init, .. } => walk_expr(init, f),
+            Stmt::Const(c) => walk_expr(&c.value, f),
             Stmt::Assign { value, .. } => walk_expr(value, f),
             Stmt::Return { value, .. } => walk_expr(value, f),
             Stmt::EventHandler { mode, body, .. } => {
@@ -155,8 +156,16 @@ impl Analysis {
 
     /// The innermost expression containing `offset`.
     pub fn expr_at(&self, offset: u32) -> Option<&Expr> {
-        let def = self.def(self.def_at(offset)?);
         let mut found = None;
+        if let Some(c) = self.const_at(offset) {
+            walk_expr(&c.value, &mut |e| {
+                if contains(e.span, offset) {
+                    found = Some(e)
+                }
+            });
+            return found;
+        }
+        let def = self.def(self.def_at(offset)?);
         for p in &def.params {
             if let Some(d) = &p.default {
                 walk_expr(d, &mut |e| {
@@ -216,6 +225,14 @@ impl Analysis {
 
     /// The innermost call whose argument list contains `offset`, found in
     /// the syntax tree.
+    /// The top-level `const` whose text contains `offset`.
+    pub fn const_at(&self, offset: u32) -> Option<&rill::lang::ast::ConstDecl> {
+        self.program
+            .consts
+            .iter()
+            .find(|c| contains(c.span, offset))
+    }
+
     pub fn call_at(&self, offset: u32) -> Option<CallSite<'_>> {
         let def = self.def(self.def_at(offset)?);
         let mut found = None;
