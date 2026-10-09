@@ -178,11 +178,18 @@ fn renaming_anything_in_the_examples_keeps_them_valid() {
             let edits = a
                 .rename(occ.span.start, &new_name)
                 .unwrap_or_else(|e| panic!("{}: {:?}: {}", path.display(), occ, e.0));
+            // A sequence's events are renamed with it.
+            let made_by = |t: &Target| match (t, &occ.target) {
+                (Target::Event(i), Target::Seq(j)) => {
+                    a.checked.seq_event(*i).is_some_and(|(seq, _)| seq == *j)
+                }
+                _ => false,
+            };
             let uses = a
                 .index
                 .all()
                 .iter()
-                .filter(|o| o.target == occ.target)
+                .filter(|o| o.target == occ.target || made_by(&o.target))
                 .count();
             assert_eq!(edits.len(), uses);
             let mut out = text.clone();

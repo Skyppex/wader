@@ -9,6 +9,12 @@ impl Analysis {
     /// they have no definition.
     pub fn definition(&self, offset: u32) -> Option<Span> {
         let occ = self.index.at(offset)?;
+        // An event a sequence makes is defined by the sequence.
+        if let super::index::Target::Event(i) = occ.target
+            && let Some((seq, _)) = self.checked.seq_event(i)
+        {
+            return Some(self.program.seqs[seq].name.span);
+        }
         let decl = self.index.declaration_of(&occ.target)?;
         Some(decl.span)
     }
@@ -66,6 +72,14 @@ rill main(freq: Freq = 440Hz) Sample {
         let def = a.definition(offset).unwrap();
         assert_eq!((def.start, a.slice(def)), (6, "keys"));
         assert_eq!(texts(&a, &a.references(offset, true)).len(), 2);
+    }
+
+    #[test]
+    fn a_sequences_events_go_to_the_sequence() {
+        let src = "seq riff { C4 }\nrill main() Sample {\n    on start { invoke riff }\n    on riff_st$ep { }\n    return 0\n}";
+        let (a, offset) = at(src);
+        let def = a.definition(offset).unwrap();
+        assert_eq!((def.start, a.slice(def)), (4, "riff"));
     }
 
     #[test]

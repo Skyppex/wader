@@ -1,5 +1,6 @@
 //! Signatures and other text shown to the user.
 
+use rill::event::EventKind;
 use rill::lang::builtins;
 use rill::lang::check::{Binding, BindingKind};
 use rill::lang::types::{DefKind, Signature, Type};
@@ -147,8 +148,15 @@ impl Analysis {
         }
     }
 
-    /// An event declaration as code: `event keys note_on(channel: 1)`.
+    /// An event declaration as code: `event keys note_on(channel: 1)`. For
+    /// one a sequence makes, its name and payload: `riff_step: SeqStep`.
     pub fn render_event(&self, index: usize) -> String {
+        if let Some((_, kind)) = self.checked.seq_event(index) {
+            let name = self.checked.events[index]
+                .as_ref()
+                .map_or("", |d| d.name.as_str());
+            return format!("{name}: {}", kind.type_name());
+        }
         let e = &self.program.events[index];
         let mut out = format!("event {} {}", e.name.name, e.kind.name);
         if !e.filters.is_empty() {
@@ -183,8 +191,17 @@ impl Analysis {
         docs::comment(&self.text, s.span.start, s.name.span.end)
     }
 
-    /// The doc comment of the event declaration at `index`.
+    /// The doc comment of the event declaration at `index`; for one a
+    /// sequence makes, what it is.
     pub fn event_doc(&self, index: usize) -> Option<String> {
+        if let Some((seq, kind)) = self.checked.seq_event(index) {
+            let seq = &self.program.seqs[seq].name.name;
+            return Some(format!(
+                "{} Made by sequence `{seq}`. {}",
+                seq_event_doc(kind),
+                payload_doc(kind)
+            ));
+        }
         let e = &self.program.events[index];
         docs::comment(&self.text, e.span.start, e.name.span.end)
     }
@@ -243,6 +260,57 @@ pub fn event_kind_doc(kind: &str) -> Option<&'static str> {
         }
         _ => return None,
     })
+}
+
+/// When a sequence makes an event of `kind`.
+pub fn seq_event_doc(kind: EventKind) -> &'static str {
+    match kind {
+        EventKind::NoteOn => "A note of the sequence starts.",
+        EventKind::NoteOff => "A note of the sequence ends.",
+        EventKind::ControlChange => "",
+        EventKind::Start => {
+            "An instance starts playing: `invoke`, or `trigger` on a stopped one. Never when it goes round again."
+        }
+        EventKind::Finished => "An instance's last pass is over: it ran out of `repeat`s.",
+        EventKind::Halted => {
+            "An instance is stopped early: by `halt`, or by `trigger` restarting it."
+        }
+        EventKind::Replaced => {
+            "An instance is stopped to make room: every one of `instances` was playing when another started."
+        }
+        EventKind::End => "An instance stops, right after `finished`, `halted` or `replaced`.",
+        EventKind::Repeated => {
+            "An instance goes back to step 1 for another pass, from `repeat` or `loop`."
+        }
+        EventKind::Step => "Every step starts, rests included.",
+        EventKind::Rest => "A step without notes starts, just after its `step`.",
+        EventKind::Beat => "Every beat of the meter, counted from the start of each pass.",
+        EventKind::Bar => "Every bar's first beat, just before that beat.",
+    }
+}
+
+/// What a handler of `kind` receives.
+pub fn payload_doc(kind: EventKind) -> String {
+    if kind == EventKind::ControlChange {
+        return "Handlers receive its value as a `Float`.".to_owned();
+    }
+    let fields: Vec<String> = kind
+        .fields()
+        .iter()
+        .map(|f| {
+            let ty = match (kind, *f) {
+                (_, "pitch") => "Pitch",
+                (_, "velocity" | "release") => "Float",
+                _ => "Int",
+            };
+            format!("`{f}: {ty}`")
+        })
+        .collect();
+    format!(
+        "Handlers receive a `{}`: {}.",
+        kind.type_name(),
+        fields.join(", ")
+    )
 }
 
 /// Every signature of the built-in `name`, defaults filled in.

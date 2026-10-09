@@ -63,7 +63,10 @@ impl Analysis {
             TokenKind::Ident if self.is_event_keyword(span) => {
                 keyword_doc(self.slice(span))?.to_owned()
             }
-            TokenKind::Ident => self.hover_builtin_arg(offset, span)?,
+            TokenKind::Ident => match self.hover_seq_field(span) {
+                Some(h) => h,
+                None => self.hover_builtin_arg(offset, span)?,
+            },
             TokenKind::Eof => return None,
             TokenKind::Fn
             | TokenKind::Rill
@@ -192,6 +195,9 @@ impl Analysis {
                 )
             }
             Target::Type(name) => markdown(name, [type_doc(name).map(str::to_owned)]),
+            Target::Event(i) if self.checked.seq_event(*i).is_some() => {
+                markdown(&self.render_event(*i), [self.event_doc(*i)])
+            }
             Target::Event(i) => {
                 let kind = self.checked.events.get(*i)?.as_ref()?.kind.name();
                 markdown(
@@ -289,6 +295,20 @@ impl Analysis {
                 };
                 elem.is_plain()
             })
+    }
+
+    /// A field of a sequence, as in `riff.step_count`: its type, value and
+    /// meaning.
+    fn hover_seq_field(&self, span: Span) -> Option<String> {
+        let (seq, field) = self.seq_field_at(span)?;
+        let facts = self.checked.seq_facts.get(seq)?;
+        let (ty, value) = rill::lang::check::seq_field(facts, field)?;
+        let doc = rill::lang::check::SEQ_FIELDS
+            .iter()
+            .find(|(n, _)| *n == field)
+            .map(|(_, d)| (*d).to_owned());
+        let name = &self.program.seqs[seq].name.name;
+        Some(markdown(&format!("{name}.{field}: {ty} = {value}"), [doc]))
     }
 
     /// The name of an argument to a built-in, as in `equal(E4, a4: 432Hz)`.
@@ -478,6 +498,35 @@ rill osc(freq: Freq, gain: Gain = -6dB) Sample {
         );
         assert_eq!(at("+ freq").unwrap(), "```rill\nFloat\n```");
         assert_eq!(at("// Smooth"), None);
+    }
+
+    #[test]
+    fn a_sequences_events_and_fields() {
+        let src = "seq riff(meter: 3/4, step: 1/8) { C4, _, E4 }\n\
+                   rill main() Sample {\n    on start { invoke riff }\n    on riff_step(s) { }\n    let n = riff.step_count\n    return 0\n}";
+        let at = |needle: &str| {
+            let i = src.find(needle).unwrap();
+            hover(&format!("{}${}", &src[..i], &src[i..]))
+        };
+        let step = at("riff_step").unwrap();
+        assert!(
+            step.starts_with("```rill\nriff_step: SeqStep\n```"),
+            "{step}"
+        );
+        assert!(
+            step.contains("Every step starts, rests included. Made by sequence `riff`."),
+            "{step}"
+        );
+        assert!(
+            step.contains("`instance: Int`, `step: Int`, `pass: Int`"),
+            "{step}"
+        );
+        let field = at("step_count").unwrap();
+        assert!(
+            field.starts_with("```rill\nriff.step_count: Int = 3\n```"),
+            "{field}"
+        );
+        assert!(field.contains("rests included"), "{field}");
     }
 
     #[test]

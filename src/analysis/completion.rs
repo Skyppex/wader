@@ -58,6 +58,8 @@ enum Context {
     HandlerMode,
     /// After `|>`: something to call, with the type of what is piped in.
     Pipe(Option<Type>),
+    /// After `riff.`: a field of a sequence.
+    SeqField(usize),
     Expr {
         /// At the start of a statement, where `let` and friends go.
         stmt_start: bool,
@@ -124,7 +126,7 @@ impl Analysis {
             Context::InvokeTarget { events } => {
                 let mut items = self.seq_items();
                 if events {
-                    items.extend(self.event_name_items());
+                    items.extend(self.event_name_items(false));
                 }
                 items
             }
@@ -136,13 +138,14 @@ impl Analysis {
                 .map(|f| item(f, Kind::Property, Some("filter".into()), None, 0))
                 .collect(),
             Context::EventName => {
-                let mut items = self.event_name_items();
+                let mut items = self.event_name_items(true);
                 items.extend(self.keyword_items(&["start"], snippets));
                 items
             }
             Context::Type => self.type_items(offset),
             Context::Unit => unit_items(),
             Context::Pipe(piped) => self.callable_items(offset, piped.as_ref()),
+            Context::SeqField(seq) => self.seq_field_items(seq),
             Context::Expr { stmt_start } => {
                 let mut items = self.named_arg_items(offset);
                 items.extend(self.value_items(offset));
@@ -227,6 +230,11 @@ impl Analysis {
         }
         if word(prev, "on") {
             return (replace, Context::EventName);
+        }
+        if kind(prev) == Some(TokenKind::Dot)
+            && let Some(seq) = prev2.and_then(|t| self.seq_named(t))
+        {
+            return (replace, Context::SeqField(seq));
         }
         if word(prev, "seq") && (starts_line(prev) || before == 1) {
             return (replace, Context::Nothing);
@@ -476,6 +484,26 @@ impl Analysis {
         })
     }
 
+    /// The fields of sequence `seq`, with their values.
+    fn seq_field_items(&self, seq: usize) -> Vec<CompletionItem> {
+        let Some(facts) = self.checked.seq_facts.get(seq) else {
+            return Vec::new();
+        };
+        rill::lang::check::SEQ_FIELDS
+            .iter()
+            .filter_map(|(name, doc)| {
+                let (ty, value) = rill::lang::check::seq_field(facts, name)?;
+                Some(item(
+                    name,
+                    Kind::Field,
+                    Some(format!("{ty} = {value}")),
+                    Some((*doc).to_owned()),
+                    0,
+                ))
+            })
+            .collect()
+    }
+
     /// The program's sequences.
     fn seq_items(&self) -> Vec<CompletionItem> {
         (0..self.program.seqs.len())
@@ -524,12 +552,14 @@ impl Analysis {
             .collect()
     }
 
-    /// The program's declared events.
-    fn event_name_items(&self) -> Vec<CompletionItem> {
+    /// The program's declared events, and with `made` the ones its
+    /// sequences make (which can be handled but not invoked).
+    fn event_name_items(&self, made: bool) -> Vec<CompletionItem> {
         self.checked
             .events
             .iter()
             .enumerate()
+            .filter(|(i, _)| made || self.checked.seq_event(*i).is_none())
             .filter_map(|(i, d)| {
                 let d = d.as_ref()?;
                 Some(item(
@@ -1049,6 +1079,44 @@ mod tests {
         // `osc` takes a `Freq`; `half` takes a `Sample`.
         assert!(pos("osc") < pos("half"), "{got:?}");
         lacks(&src, &["let", "true", "RATE"]);
+    }
+
+    #[test]
+    fn a_sequences_events_and_fields() {
+        let head = "seq riff(step: 1/8) { C4, E4 }\nevent keys note_on(sender: 1)\n";
+        let main =
+            |body: &str| format!("{head}rill main() Sample {{\n    {body}\n    return 0\n}}");
+        // Handled after `on`, alongside declared events.
+        has(
+            &main("on $"),
+            &[
+                "keys",
+                "riff_note_on",
+                "riff_step",
+                "riff_finished",
+                "riff_bar",
+            ],
+        );
+        // But never invoked.
+        let invoke = main("on start { invoke $ }");
+        has(&invoke, &["riff", "keys"]);
+        lacks(&invoke, &["riff_step", "riff_note_on"]);
+        // Fields after `riff.`.
+        let mut fields = labels(&main("let n = riff.$"));
+        fields.sort();
+        assert_eq!(
+            fields,
+            [
+                "bar_count",
+                "beat_count",
+                "beat_unit",
+                "beats_per_bar",
+                "instances",
+                "step_count",
+                "step_size",
+                "steps_per_beat"
+            ]
+        );
     }
 
     #[test]

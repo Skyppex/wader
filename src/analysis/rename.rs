@@ -20,6 +20,14 @@ impl Analysis {
             return Ok(None);
         };
         let name = self.slice(occ.span).to_owned();
+        if let Target::Event(i) = occ.target
+            && let Some((seq, _)) = self.checked.seq_event(i)
+        {
+            return Err(RenameError(format!(
+                "`{name}` is made by sequence `{}`; rename the sequence instead",
+                self.program.seqs[seq].name.name
+            )));
+        }
         let what = match &occ.target {
             Target::Def(_) | Target::Binding(_) | Target::Event(_) | Target::Seq(_) => {
                 return Ok(Some((occ.span, name)));
@@ -43,11 +51,28 @@ impl Analysis {
         };
         valid_name(new_name)?;
         let target = self.index.at(offset).expect("prepared").target.clone();
-        let edits: Vec<(Span, String)> = self
+        let mut edits: Vec<(Span, String)> = self
             .index
             .occurrences_of(&target)
             .map(|o| (o.span, new_name.to_owned()))
             .collect();
+        // A sequence's events are named after it, and are renamed with it.
+        if let Target::Seq(j) = target {
+            for i in 0..self.checked.events.len() {
+                let Some((seq, kind)) = self.checked.seq_event(i) else {
+                    continue;
+                };
+                if seq == j {
+                    let name = format!("{new_name}_{}", kind.suffix());
+                    edits.extend(
+                        self.index
+                            .occurrences_of(&Target::Event(i))
+                            .map(|o| (o.span, name.clone())),
+                    );
+                }
+            }
+            edits.sort_by_key(|(s, _)| s.start);
+        }
         if new_name != old_name {
             self.check_rename(&edits, &old_name, new_name)?;
         }
@@ -168,6 +193,23 @@ rill main() Sample {
     fn cursor(needle: &str, nth: usize) -> String {
         let at = SRC.match_indices(needle).nth(nth).unwrap().0;
         format!("{}${}", &SRC[..at], &SRC[at..])
+    }
+
+    #[test]
+    fn a_sequence_renames_its_events() {
+        let src = "seq $riff { C4 }\nrill main() Sample {\n    on start { invoke riff }\n    on riff_step(s) { halt riff }\n    on riff_note_on { }\n    return 0\n}";
+        assert_eq!(
+            rename(src, "lead").unwrap(),
+            "seq lead { C4 }\nrill main() Sample {\n    on start { invoke lead }\n    on lead_step(s) { halt lead }\n    on lead_note_on { }\n    return 0\n}"
+        );
+        // The events themselves follow the sequence.
+        let src = src
+            .replacen('$', "", 1)
+            .replacen("riff_step", "riff_$step", 1);
+        assert_eq!(
+            rename(&src, "x").unwrap_err().0,
+            "`riff_step` is made by sequence `riff`; rename the sequence instead"
+        );
     }
 
     #[test]
