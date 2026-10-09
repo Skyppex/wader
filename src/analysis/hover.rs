@@ -95,7 +95,7 @@ impl Analysis {
     /// ordinary names elsewhere.
     /// A word that is a keyword here and an ordinary name elsewhere:
     /// `event`, `on`, `seq`, `invoke`, `trigger`, `halt`, `claim`,
-    /// `release`, or `start` in `on start`.
+    /// `release`, `each` before an argument, or `start` in `on start`.
     fn is_event_keyword(&self, span: Span) -> bool {
         let next = self.tokens.iter().find(|t| t.span.start >= span.end);
         let prev = self.tokens.iter().rev().find(|t| t.span.end <= span.start);
@@ -127,6 +127,9 @@ impl Analysis {
                 on_line && matches!(next_kind, Some(TokenKind::LBrace | TokenKind::LParen))
             }
             "release" => on_line && next_kind == Some(TokenKind::LBrace),
+            "each" => self
+                .call_at(span.start)
+                .is_some_and(|c| c.args.iter().any(|a| a.each == Some(span))),
             _ => false,
         }
     }
@@ -475,6 +478,27 @@ rill osc(freq: Freq, gain: Gain = -6dB) Sample {
         );
         assert_eq!(at("+ freq").unwrap(), "```rill\nFloat\n```");
         assert_eq!(at("// Smooth"), None);
+    }
+
+    #[test]
+    fn each_and_random() {
+        let src = "rill osc(freq: Freq, offset: Float = 0) Sample { return sin(offset) }\n\
+                   rill main() Sample {\n    let each = 0.5\n    let v = [110Hz, 220Hz] |> osc(offset: each random())\n    return osc(1Hz, each)\n}";
+        let at = |needle: &str, nth: usize| {
+            let i = src.match_indices(needle).nth(nth).unwrap().0;
+            hover(&format!("{}${}", &src[..i], &src[i..]))
+        };
+        // The keyword before an argument, and a name elsewhere.
+        assert!(at("each", 1).unwrap().contains("once per copy"));
+        let name = at("each", 2).unwrap();
+        assert!(name.starts_with("```rill\nlet each:"), "{name}");
+        let random = at("random", 0).unwrap();
+        assert!(random.contains("fn random() Float"), "{random}");
+        assert!(random.contains("fn random(lo: S, hi: S) S"), "{random}");
+        assert!(
+            random.contains("once, when the program is built"),
+            "{random}"
+        );
     }
 
     #[test]

@@ -219,7 +219,11 @@ impl Analysis {
         let written = &args[skip..];
         // One argument per comma passed: each sits between the end of an
         // argument and the start of the next.
-        let start_of = |a: &Arg| a.name.as_ref().map_or(a.value.span.start, |n| n.span.start);
+        let start_of = |a: &Arg| match (&a.name, a.each) {
+            (Some(n), _) => n.span.start,
+            (None, Some(each)) => each.start,
+            (None, None) => a.value.span.start,
+        };
         let index = written
             .iter()
             .enumerate()

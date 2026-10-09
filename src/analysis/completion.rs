@@ -148,6 +148,9 @@ impl Analysis {
                 items.extend(self.value_items(offset));
                 items.extend(self.callable_items(offset, None));
                 let mut keywords = vec!["if", "fn", "true", "false"];
+                if self.at_rill_arg_start(offset) {
+                    keywords.push("each");
+                }
                 if self.in_handler(offset) {
                     keywords.extend(["invoke", "trigger"]);
                     if stmt_start {
@@ -740,6 +743,32 @@ impl Analysis {
 
     /// `name:` for the parameters of the call around `offset` that are not
     /// given yet, when at the start of an argument.
+    /// At the start of an argument's value (after `(`, `,` or `name:`) in a
+    /// call of a rill, where `each` can go.
+    fn at_rill_arg_start(&self, offset: u32) -> bool {
+        let Some((callee, _, _)) = self.call_at_tokens(offset) else {
+            return false;
+        };
+        let i = self.tokens.partition_point(|t| t.span.end <= offset);
+        let prev = self.tokens[..i]
+            .iter()
+            .rev()
+            .find(|t| !(t.span.end >= offset && is_word(t.kind)));
+        if !prev.is_some_and(|t| {
+            matches!(
+                t.kind,
+                TokenKind::LParen | TokenKind::Comma | TokenKind::Colon
+            )
+        }) {
+            return false;
+        }
+        matches!(
+            self.target_by_name(self.slice(callee), callee.start),
+            Some(super::index::Target::Def(d))
+                if self.checked.signatures[d].kind == rill::lang::types::DefKind::Rill
+        )
+    }
+
     fn named_arg_items(&self, offset: u32) -> Vec<CompletionItem> {
         let Some((callee, _, None)) = self.call_at_tokens(offset) else {
             return Vec::new();
@@ -1020,6 +1049,17 @@ mod tests {
         // `osc` takes a `Freq`; `half` takes a `Sample`.
         assert!(pos("osc") < pos("half"), "{got:?}");
         lacks(&src, &["let", "true", "RATE"]);
+    }
+
+    #[test]
+    fn each_where_a_rill_argument_starts() {
+        let main = |call: &str| format!("{HEAD}rill main() Sample {{\n    return {call}\n}}");
+        has(&main("osc($"), &["each", "random"]);
+        has(&main("osc(freq: $"), &["each"]);
+        has(&main("osc(1Hz, e$"), &["each"]);
+        lacks(&main("half($"), &["each"]);
+        lacks(&main("sin($"), &["each"]);
+        lacks(&main("osc(1Hz) + $"), &["each"]);
     }
 
     #[test]

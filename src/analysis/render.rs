@@ -324,6 +324,9 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
         "release" => {
             "Makes a `note_off` handler run only in the voice holding that note. The voice stays busy until its sound has died away."
         }
+        "each" => {
+            "Makes an argument once per copy of a rill that runs per element, instead of once for all of them: `saw(offset: each random())` gives every copy its own offset, and `each lfo(0.3Hz)` its own LFO."
+        }
         "start" => "A built-in event: `on start { ... }` runs once, before the first sample.",
         "event" => {
             "Declares an event: a name, a kind (`note_on`, `note_off` or `control_change`) and optional filters, as in `event keys note_on(sender: 5, channel: 1)`. Handlers use the name."
