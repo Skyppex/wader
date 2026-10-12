@@ -346,7 +346,7 @@ impl Analysis {
             Unit::Hz | Unit::S | Unit::St => None,
             Unit::KHz | Unit::Bpm => Some(format!("= {} Hz", num(base))),
             Unit::Ms => Some(format!("= {} s", num(base))),
-            Unit::Cents => Some(format!("= {} semitones", num(base))),
+            Unit::Cents | Unit::Oct => Some(format!("= {} semitones", num(base))),
             Unit::Db => {
                 // Subtracted from a signal, a level scales it the other way.
                 if let Some(e) = operand

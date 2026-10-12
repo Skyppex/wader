@@ -363,6 +363,9 @@ pub fn type_doc(name: &str) -> Option<&'static str> {
     Some(match name {
         "Sample" => "One audio value, nominally in [-1.0, 1.0]. Its storage is chosen per target.",
         "Float" => "A plain number for control logic. Not converted at I/O.",
+        "Slope" => {
+            "How fast a level changes over an interval: a `Gain` over an `Interval`, as in `24dB / 1oct` (24 dB per octave). Times an `Interval`, a `Gain` again. A filter's `slope`."
+        }
         "Int" => "A whole number for control logic.",
         "Bool" => "`true` or `false`.",
         "Freq" => "A frequency, written in `Hz` or `kHz`. Converts to samples via the host rate.",
@@ -371,7 +374,7 @@ pub fn type_doc(name: &str) -> Option<&'static str> {
             "A position in pitch, written as a note name like `A4` or `F#3`. Becomes a `Freq` through a tuning such as `equal`."
         }
         "Interval" => {
-            "A distance in pitch, written in `st` (semitones) or `cents`. `Pitch ± Interval` gives a `Pitch`."
+            "A distance in pitch, written in `st` (semitones), `cents` or `oct` (octaves). `Pitch ± Interval` gives a `Pitch`."
         }
         "Gain" => {
             "A level change, written in `dB`. `x + 6dB` makes `x` louder; any plain number is an amplitude factor."
@@ -458,6 +461,7 @@ pub fn unit_doc(unit: &str) -> Option<&'static str> {
         "ms" => "milliseconds",
         "st" => "semitones",
         "cents" => "hundredths of a semitone",
+        "oct" => "octaves: `1oct` is `12st`",
         "dB" => "decibels",
         _ => return None,
     })

@@ -267,10 +267,24 @@ fn completion_of_import_paths() {
     };
     // Never the extension, never the file itself, never a name that cannot
     // be imported.
-    assert_eq!(labels("import \"$\""), ["../", "@effects/", "@gen/", "@mix/", "@util/", "lib/", "osc"]);
+    assert_eq!(
+        labels("import \"$\""),
+        [
+            "../",
+            "@effects/",
+            "@gen/",
+            "@mix/",
+            "@util/",
+            "lib/",
+            "osc"
+        ]
+    );
     assert_eq!(labels("import \"lib/$\""), ["lib/fx"]);
     // The core library, from anywhere.
-    assert_eq!(labels("import \"@$\""), ["@effects/", "@gen/", "@mix/", "@util/"]);
+    assert_eq!(
+        labels("import \"@$\""),
+        ["@effects/", "@gen/", "@mix/", "@util/"]
+    );
     assert_eq!(labels("import \"@gen/$\""), ["@gen/noise", "@gen/osc"]);
 }
 

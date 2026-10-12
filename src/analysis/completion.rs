@@ -74,8 +74,8 @@ enum Context {
     },
 }
 
-pub const TYPES: [&str; 9] = [
-    "Sample", "Float", "Int", "Bool", "Freq", "Time", "Pitch", "Interval", "Gain",
+pub const TYPES: [&str; 10] = [
+    "Sample", "Float", "Int", "Bool", "Freq", "Time", "Pitch", "Interval", "Gain", "Slope",
 ];
 
 fn item(
