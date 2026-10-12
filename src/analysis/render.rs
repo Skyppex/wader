@@ -419,7 +419,7 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
         "if" | "else" => {
             "Chooses between two values; both branches have the same type. Without `else`, it produces nothing."
         }
-        "as" => "Converts between `Sample`, `Float` and `Int`. Units never disappear by a cast.",
+        "as" => "Converts between `Sample`, `Float` and `Int`, element by element through any frame shape. Units never disappear by a cast.",
         "seq" => {
             "Declares a sequence: a pattern of notes that plays when invoked, as in `seq riff(step: 1/8) { C4, _, E4@0.5 }`. It is a sender: `event lead note_on(sender: riff)` hears its notes."
         }
