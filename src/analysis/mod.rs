@@ -6,6 +6,7 @@
 
 pub mod completion;
 pub mod convert;
+pub mod core_files;
 pub mod docs;
 pub mod hover;
 pub mod index;
@@ -150,13 +151,18 @@ impl Analysis {
         &self,
         span: Span,
         encoding: Encoding,
-    ) -> Option<(Option<&Path>, lsp::Range)> {
+    ) -> Option<(Option<PathBuf>, lsp::Range)> {
         let (f, local) = self.locate_span(span)?;
         if f.base == 0 {
             return None;
         }
         let doc = Document::new(f.text.clone(), 0, encoding);
-        Some((f.path.as_deref(), doc.range(local.start, local.end)))
+        // A core module is shown from its read-only copy.
+        let path = match f.core_module() {
+            Some(name) => core_files::path(name),
+            None => f.path.clone(),
+        };
+        Some((path, doc.range(local.start, local.end)))
     }
 
     /// The doc comment above the declaration starting at `start`, whose
@@ -249,7 +255,7 @@ impl Analysis {
                     let (path, range) = self.file_range(d.span, encoding)?;
                     Some(lsp::DiagnosticRelatedInformation {
                         location: lsp::Location {
-                            uri: crate::uri::from_path(path?),
+                            uri: crate::uri::from_path(&path?),
                             range,
                         },
                         message: d.message.clone(),

@@ -2,9 +2,9 @@
 
 use rill::lang::Span;
 use rill::lang::ast::{BinOp, Expr, ExprKind, UnOp};
-use rill::lang::builtins;
 use rill::lang::check::{BindingKind, pitch_literal};
 use rill::lang::lexer::{TokenKind, Unit};
+use rill::lang::prelude;
 use rill::lang::types::Type;
 
 use super::Analysis;
@@ -175,18 +175,18 @@ impl Analysis {
                     [owner, payload, self.binding_doc(b)],
                 )
             }
-            Target::Builtin(name) => {
+            Target::Prelude(name) => {
                 let code: Vec<String> =
                     render::builtin(name).into_iter().map(|r| r.label).collect();
-                let doc = builtins::doc(name).map(str::to_owned);
-                let note = render::type_params_note(&builtins::lookup(name));
+                let doc = prelude::doc(name).map(str::to_owned);
+                let note = render::type_params_note(&prelude::lookup(name));
                 markdown(&code.join("\n"), [doc, note])
             }
             Target::Constant(name) => {
-                let ty = builtins::constant(name)?;
+                let ty = prelude::constant(name)?;
                 markdown(
                     &format!("{name}: {ty}"),
-                    [builtins::doc(name).map(str::to_owned)],
+                    [prelude::doc(name).map(str::to_owned)],
                 )
             }
             Target::Note(name) => {
@@ -414,7 +414,7 @@ impl Analysis {
         {
             return None;
         }
-        let sigs = builtins::lookup(&call.callee.name);
+        let sigs = prelude::lookup(&call.callee.name);
         let sig = sigs
             .iter()
             .find(|s| s.params.iter().any(|p| p.name == name))?;

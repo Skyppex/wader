@@ -8,9 +8,9 @@ use std::collections::HashSet;
 use rill::lang::Sources;
 use rill::lang::Span;
 use rill::lang::ast::ExprKind;
-use rill::lang::builtins;
 use rill::lang::check::{Binding, BindingKind, Global};
 use rill::lang::lexer::{Token, TokenKind, Unit};
+use rill::lang::prelude;
 use rill::lang::types::{DefKind, Type, coerces};
 
 use super::Analysis;
@@ -582,16 +582,36 @@ impl Analysis {
     /// folders that lead to more. `typed` is the path so far; its folders
     /// are kept in every label.
     fn import_path_items(&self, typed: &str) -> Vec<CompletionItem> {
+        let folder = typed.rfind('/').map_or("", |i| &typed[..=i]);
+        // The core library, wherever this file is: `@gen/`, then its
+        // modules.
+        let mut core = Vec::new();
+        if folder.is_empty() || typed.starts_with('@') {
+            for name in rill::lang::core::names() {
+                let Some(rest) = name.strip_prefix(folder) else {
+                    continue;
+                };
+                let (label, kind, detail) = match rest.find('/') {
+                    Some(i) => (format!("{folder}{}", &rest[..=i]), Kind::Folder, None),
+                    None => (name.clone(), Kind::Module, Some("core library".to_owned())),
+                };
+                if !core.iter().any(|c: &CompletionItem| c.label == label) {
+                    core.push(item(&label, kind, detail, None, 3));
+                }
+            }
+        }
+        if typed.starts_with('@') {
+            return core;
+        }
         let Some(here) = &self.path else {
-            return Vec::new();
+            return core;
         };
         let dir = here.parent().unwrap_or(std::path::Path::new(""));
-        let folder = typed.rfind('/').map_or("", |i| &typed[..=i]);
         let Ok(entries) = std::fs::read_dir(dir.join(folder)) else {
-            return Vec::new();
+            return core;
         };
         let me = rill::lang::Disk.canonical(here);
-        let mut items = Vec::new();
+        let mut items = core;
         if folder.split('/').all(|p| p.is_empty() || p == "..") {
             items.push(item(&format!("{folder}../"), Kind::Folder, None, None, 2));
         }
@@ -766,7 +786,7 @@ impl Analysis {
                         Some(self.checked.bindings[b].ty.clone())
                     }
                     _ if rill::lang::check::pitch_literal(name).is_some() => Some(Type::Pitch),
-                    _ => builtins::constant(name).cloned(),
+                    _ => prelude::constant(name).cloned(),
                 }
             }
             _ => None,
@@ -828,14 +848,14 @@ impl Analysis {
                 1,
             ));
         }
-        for (name, ty) in builtins::CONSTANTS {
-            let doc = builtins::doc(name).map(str::to_owned);
+        for (name, ty) in prelude::CONSTANTS {
+            let doc = prelude::doc(name).map(str::to_owned);
             items.push(item(name, Kind::Constant, Some(ty.to_string()), doc, 3));
         }
         items
     }
 
-    /// Fns, rills and built-ins, and variables holding functions. With a
+    /// Fns, rills and prelude functions, and variables holding functions. With a
     /// piped type, the ones taking it first sort first.
     fn callable_items(&self, offset: u32, piped: Option<&Type>) -> Vec<CompletionItem> {
         let rills_allowed = self.in_rill_body(offset);
@@ -845,8 +865,8 @@ impl Analysis {
             (None, _) => true,
             (Some(_), None) => false,
             (Some(t), Some(Type::Param(c))) => {
-                builtins::satisfies(c, t)
-                    || matches!(t, Type::Frame(e, _) if lifts && builtins::satisfies(c, e))
+                prelude::satisfies(c, t)
+                    || matches!(t, Type::Frame(e, _) if lifts && prelude::satisfies(c, e))
             }
             (Some(t), Some(p)) => {
                 coerces(t, p) || matches!(t, Type::Frame(e, _) if lifts && coerces(e, p))
@@ -879,16 +899,13 @@ impl Analysis {
                 rank(fit, 1),
             ));
         }
-        for name in builtins::FUNCTIONS {
-            let sigs = builtins::lookup(name);
-            let fit = sigs.iter().any(|s| {
-                fits(
-                    s.params.first().map(|p| &p.ty),
-                    builtins::takes_frames(name),
-                )
-            });
+        for name in prelude::FUNCTIONS {
+            let sigs = prelude::lookup(name);
+            let fit = sigs
+                .iter()
+                .any(|s| fits(s.params.first().map(|p| &p.ty), prelude::takes_frames(name)));
             let detail = render::builtin(name).into_iter().next().map(|r| r.label);
-            let doc = builtins::doc(name).map(str::to_owned);
+            let doc = prelude::doc(name).map(str::to_owned);
             items.push(item(name, Kind::Function, detail, doc, rank(fit, 2)));
         }
         for b in self.visible_bindings(offset) {
@@ -954,7 +971,7 @@ impl Analysis {
                 .iter()
                 .map(|p| (p.name.clone(), p.ty.to_string()))
                 .collect(),
-            Some(super::index::Target::Builtin(n)) => builtins::lookup(&n)
+            Some(super::index::Target::Prelude(n)) => prelude::lookup(&n)
                 .into_iter()
                 .flat_map(|s| s.params)
                 .map(|p| (p.name, p.ty.to_string()))
@@ -1394,7 +1411,7 @@ mod tests {
             &format!("{src}rill f() Sample {{\n    return $\n}}"),
             &["VOICES"],
         );
-        // A `const`'s value can use other `const`s and built-ins, not fns.
+        // A `const`'s value can use other `const`s and prelude functions, not fns.
         has(&format!("{src}const K = $"), &["VOICES", "sin", "RATE"]);
         lacks(&format!("{src}const K = $"), &["half", "const"]);
         lacks(&format!("{src}const $"), &["VOICES", "const"]);

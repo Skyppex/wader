@@ -1,7 +1,7 @@
 //! Signature help: the signature of the call around the cursor.
 
-use rill::lang::builtins;
 use rill::lang::lexer::TokenKind;
+use rill::lang::prelude;
 use rill::lang::types::Type;
 
 use super::Analysis;
@@ -98,15 +98,15 @@ impl Analysis {
                     param_names: def.params.iter().map(|p| p.name.name.clone()).collect(),
                 }]
             }
-            Target::Builtin(name) => {
-                let doc = builtins::doc(&name).map(|d| {
-                    let note = render::type_params_note(&builtins::lookup(&name));
+            Target::Prelude(name) => {
+                let doc = prelude::doc(&name).map(|d| {
+                    let note = render::type_params_note(&prelude::lookup(&name));
                     match note {
                         Some(n) => format!("{d}\n\n{n}"),
                         None => d.to_owned(),
                     }
                 });
-                builtins::lookup(&name)
+                prelude::lookup(&name)
                     .into_iter()
                     .zip(render::builtin(&name))
                     .map(|(sig, rendered)| SignatureInfo {
@@ -168,7 +168,7 @@ impl Analysis {
         {
             return Some(Target::Def(i));
         }
-        (!builtins::lookup(name).is_empty()).then(|| Target::Builtin(name.to_owned()))
+        (!prelude::lookup(name).is_empty()).then(|| Target::Prelude(name.to_owned()))
     }
 }
 

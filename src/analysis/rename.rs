@@ -21,6 +21,19 @@ impl Analysis {
             return Ok(None);
         };
         let name = self.slice(occ.span).to_owned();
+        // The core library is part of the compiler; a copy of it in the
+        // editor changes nothing.
+        let from_core = self
+            .index
+            .declaration_of(&occ.target)
+            .and_then(|d| self.locate_span(d.span))
+            .is_some_and(|(f, _)| f.core_module().is_some());
+        let core_copy = self.path.as_deref().is_some_and(super::core_files::is_copy);
+        if occ.target.is_user() && (from_core || core_copy) {
+            return Err(RenameError(format!(
+                "`{name}` is from the core library, so it cannot be renamed"
+            )));
+        }
         if let Target::Event(i) = occ.target
             && let Some((seq, _)) = self.checked.seq_event(i)
         {
@@ -37,9 +50,9 @@ impl Analysis {
             | Target::Const(_) => {
                 return Ok(Some((occ.span, name)));
             }
-            Target::Builtin(_) => "built-in function",
+            Target::Prelude(_) => "prelude function",
             Target::EventKind(_) => "kind of event",
-            Target::Constant(_) => "built-in constant",
+            Target::Constant(_) => "prelude constant",
             Target::Note(_) => "note name",
             Target::Type(_) => "built-in type",
         };
@@ -292,7 +305,7 @@ rill main() Sample {
     #[test]
     fn refuses_what_cannot_be_renamed() {
         let e = rename(&cursor("wrap", 0), "x").unwrap_err();
-        assert_eq!(e.0, "`wrap` is a built-in function and cannot be renamed");
+        assert_eq!(e.0, "`wrap` is a prelude function and cannot be renamed");
         assert!(rename(&cursor("RATE", 0), "x").is_err());
         assert!(rename(&cursor("Sample", 0), "x").is_err());
         assert!(rename(&cursor("return", 0), "x").is_err());
@@ -318,7 +331,7 @@ rill main() Sample {
             "{}",
             e.0
         );
-        // A local named like a built-in hides it.
+        // A local named like a prelude function hides it.
         assert!(rename(&cursor("phase", 0), "sin").is_err());
         // Two definitions with one name.
         assert!(rename(&cursor("osc", 0), "main").is_err());

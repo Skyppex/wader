@@ -267,8 +267,11 @@ fn completion_of_import_paths() {
     };
     // Never the extension, never the file itself, never a name that cannot
     // be imported.
-    assert_eq!(labels("import \"$\""), ["../", "lib/", "osc"]);
+    assert_eq!(labels("import \"$\""), ["../", "@effects/", "@gen/", "@mix/", "@util/", "lib/", "osc"]);
     assert_eq!(labels("import \"lib/$\""), ["lib/fx"]);
+    // The core library, from anywhere.
+    assert_eq!(labels("import \"@$\""), ["@effects/", "@gen/", "@mix/", "@util/"]);
+    assert_eq!(labels("import \"@gen/$\""), ["@gen/noise", "@gen/osc"]);
 }
 
 #[test]
@@ -406,4 +409,44 @@ fn moving_files_keeps_imports_working() {
             .will_rename
             .is_some()
     );
+}
+
+#[test]
+fn the_core_library_in_the_editor() {
+    let folder = Folder::new("core", &[]);
+    let (mut client, pos) = open(
+        &folder,
+        "song.rill",
+        "import \"@gen/osc\"\nrill main() Sample { return s$aw(110Hz) }",
+    );
+    assert_eq!(client.diagnostics(&folder.uri("song.rill")).unwrap(), []);
+    // Its source opens from a read-only copy.
+    let found = client
+        .request::<r::GotoDefinition>(at(&folder, "song.rill", pos))
+        .unwrap()
+        .unwrap();
+    let path = uri::to_path(&found[0].uri).unwrap();
+    assert!(path.ends_with("gen/osc.rill"), "{}", path.display());
+    let copy = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(copy, rill::lang::core::module("gen/osc").unwrap());
+    assert!(std::fs::metadata(&path).unwrap().permissions().readonly());
+    // Hover says where it is from.
+    let text = client
+        .request::<r::HoverRequest>(at(&folder, "song.rill", pos))
+        .unwrap()
+        .unwrap()
+        .contents
+        .value;
+    assert!(text.contains("From \"@gen/osc\"."), "{text}");
+    // It cannot be renamed.
+    let e = client
+        .request::<r::Rename>(lsp::RenameParams {
+            text_document: lsp::TextDocumentIdentifier {
+                uri: folder.uri("song.rill"),
+            },
+            position: pos,
+            new_name: "ramp".into(),
+        })
+        .unwrap_err();
+    assert!(e.message.contains("from the core library"), "{}", e.message);
 }

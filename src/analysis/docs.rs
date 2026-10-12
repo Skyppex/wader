@@ -1,4 +1,4 @@
-//! Documentation: `//` comments in the source, and the built-ins' docs.
+//! Documentation: `//` comments in the source, and the prelude functions' docs.
 
 /// The doc comment for a declaration starting at `at`: the `//` lines
 /// directly above its line, or failing that a `//` comment at the end of

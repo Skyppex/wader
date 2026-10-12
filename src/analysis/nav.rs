@@ -5,7 +5,7 @@ use rill::lang::Span;
 use super::Analysis;
 
 impl Analysis {
-    /// Where the name at `offset` is defined. Built-ins have no source, so
+    /// Where the name at `offset` is defined. Prelude functions have no source, so
     /// they have no definition.
     pub fn definition(&self, offset: u32) -> Option<Span> {
         // An import's path leads to the start of the file.
@@ -34,7 +34,7 @@ impl Analysis {
     }
 
     /// Every appearance of the name at `offset`, in order: user names and
-    /// built-ins alike.
+    /// prelude functions alike.
     pub fn references(&self, offset: u32, include_declaration: bool) -> Vec<Span> {
         let Some(occ) = self.index.at(offset) else {
             return Vec::new();
@@ -124,7 +124,7 @@ rill main(freq: Freq = 440Hz) Sample {
         let (a, o) = at(&cursor("main", 0));
         assert_eq!(a.definition(o).map(|d| d.start as usize), SRC.find("main"));
 
-        // Built-ins, constants, keywords and literals have none.
+        // Prelude functions, constants, keywords and literals have none.
         for needle in ["wrap", "RATE", "state", "440Hz", "Sample"] {
             let (a, o) = at(&cursor(needle, 0));
             assert_eq!(a.definition(o), None, "{needle}");
@@ -145,7 +145,7 @@ rill main(freq: Freq = 440Hz) Sample {
         let (a, o) = at(&cursor("phase", 2));
         assert_eq!(a.references(o, true).len(), 4);
 
-        // Built-ins are found too, though they have no declaration.
+        // Prelude functions are found too, though they have no declaration.
         let src = "rill main() Sample { return sin(sin(1)) }";
         let (a, o) = at(&src.replacen("sin", "$sin", 1));
         assert_eq!(a.references(o, true).len(), 2);

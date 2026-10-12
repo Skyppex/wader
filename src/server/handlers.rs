@@ -218,7 +218,7 @@ impl Server {
                 range: convert::range(&open.doc, span),
             }),
             Some((path, range)) => Some(Location {
-                uri: crate::uri::from_path(path?),
+                uri: crate::uri::from_path(&path?),
                 range,
             }),
         }
@@ -441,7 +441,7 @@ impl Server {
                             range: convert::range(&doc, span),
                         },
                         Some((Some(p), range)) => Location {
-                            uri: crate::uri::from_path(p),
+                            uri: crate::uri::from_path(&p),
                             range,
                         },
                         Some((None, _)) => continue,

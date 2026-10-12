@@ -1,8 +1,8 @@
 //! Signatures and other text shown to the user.
 
 use rill::event::EventKind;
-use rill::lang::builtins;
 use rill::lang::check::{Binding, BindingKind};
+use rill::lang::prelude;
 use rill::lang::types::{DefKind, Signature, Type};
 
 use super::Analysis;
@@ -45,9 +45,9 @@ fn render(sig: &Signature, keyword: &str, default: impl Fn(usize) -> Option<Stri
     Rendered { label, params }
 }
 
-/// The default of a built-in's parameter, written as a literal.
+/// The default of a prelude function's parameter, written as a literal.
 fn builtin_default(name: &str, param: &str, ty: &Type) -> Option<String> {
-    let v = builtins::default_value(name, param)?;
+    let v = prelude::default_value(name, param)?;
     Some(match ty {
         Type::Freq => format!("{v}Hz"),
         Type::Time => format!("{v}s"),
@@ -55,7 +55,7 @@ fn builtin_default(name: &str, param: &str, ty: &Type) -> Option<String> {
     })
 }
 
-/// What `T` and `S` mean in built-in signatures, if `sig` uses them.
+/// What `T` and `S` mean in prelude signatures, if `sig` uses them.
 pub fn type_params_note(sigs: &[Signature]) -> Option<String> {
     fn mentions(t: &Type, param: &str) -> bool {
         match t {
@@ -345,9 +345,9 @@ pub fn payload_doc(kind: EventKind) -> String {
     )
 }
 
-/// Every signature of the built-in `name`, defaults filled in.
+/// Every signature of the prelude function `name`, defaults filled in.
 pub fn builtin(name: &str) -> Vec<Rendered> {
-    builtins::lookup(name)
+    prelude::lookup(name)
         .iter()
         .map(|sig| {
             render(sig, "fn", |i| {
@@ -524,15 +524,15 @@ mod tests {
         let min: Vec<String> = builtin("min").into_iter().map(|r| r.label).collect();
         assert_eq!(min, ["fn min<N>(x: [F; N]) F", "fn min(a: S, b: S) S"]);
         assert!(
-            type_params_note(&builtins::lookup("min"))
+            type_params_note(&prelude::lookup("min"))
                 .unwrap()
                 .contains("`S`")
         );
         assert!(
-            type_params_note(&builtins::lookup("sum"))
+            type_params_note(&prelude::lookup("sum"))
                 .unwrap()
                 .contains("`F` is a plain number, or a frame of them")
         );
-        assert_eq!(type_params_note(&builtins::lookup("decay")), None);
+        assert_eq!(type_params_note(&prelude::lookup("decay")), None);
     }
 }

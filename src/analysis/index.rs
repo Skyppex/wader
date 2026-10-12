@@ -11,7 +11,7 @@ pub enum Target {
     /// A fn or rill, by index into the program's items.
     Def(usize),
     Binding(BindingId),
-    Builtin(String),
+    Prelude(String),
     Constant(String),
     /// A note name like `F#4`.
     Note(String),
@@ -117,7 +117,7 @@ impl Index {
             let target = match r {
                 Resolution::Binding(id) => Target::Binding(*id),
                 Resolution::Def(i) => Target::Def(*i),
-                Resolution::Builtin(n) => Target::Builtin(n.clone()),
+                Resolution::Prelude(n) => Target::Prelude(n.clone()),
                 Resolution::Constant(n) => Target::Constant(n.clone()),
                 Resolution::Note => Target::Note(name()),
                 Resolution::Type => Target::Type(name()),
