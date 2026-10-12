@@ -61,7 +61,9 @@ pub fn type_params_note(sigs: &[Signature]) -> Option<String> {
         match t {
             Type::Param(p) => *p == param,
             Type::Frame(elem, _) => mentions(elem, param),
-            Type::Fn(ps, r) => ps.iter().any(|p| mentions(p, param)) || mentions(r, param),
+            Type::Fn(ps, r) | Type::Rill(ps, r) => {
+                ps.iter().any(|p| mentions(p, param)) || mentions(r, param)
+            }
             _ => false,
         }
     }

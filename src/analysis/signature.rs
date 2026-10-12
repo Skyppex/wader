@@ -118,10 +118,11 @@ impl Analysis {
                     .collect()
             }
             Target::Binding(id) => {
-                // A variable holding a function: its parameters have no names.
+                // A variable holding a callable: its parameters have no names.
                 let b = &self.checked.bindings[id];
-                let Type::Fn(params, ret) = &b.ty else {
-                    return None;
+                let (params, ret) = match &b.ty {
+                    Type::Fn(params, ret) | Type::Rill(params, ret) => (params, ret),
+                    _ => return None,
                 };
                 let mut label = format!("{}(", b.name);
                 let mut spans = Vec::new();

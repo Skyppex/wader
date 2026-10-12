@@ -909,8 +909,8 @@ impl Analysis {
             items.push(item(name, Kind::Function, detail, doc, rank(fit, 2)));
         }
         for b in self.visible_bindings(offset) {
-            if let Type::Fn(params, _) = &b.ty {
-                let fit = fits(params.first(), false);
+            if let Type::Fn(params, _) | Type::Rill(params, _) = &b.ty {
+                let fit = fits(params.first(), matches!(b.ty, Type::Rill(..)));
                 items.push(item(
                     &b.name,
                     Kind::Variable,
@@ -1001,6 +1001,20 @@ impl Analysis {
             .iter()
             .map(|t| item(t, Kind::Struct, None, type_doc(t).map(str::to_owned), 0))
             .collect();
+        items.push(item(
+            "fn",
+            Kind::Keyword,
+            Some("fn(...) ...".into()),
+            keyword_doc("fn").map(str::to_owned),
+            0,
+        ));
+        items.push(item(
+            "rill",
+            Kind::Keyword,
+            Some("rill(...) ...".into()),
+            keyword_doc("rill").map(str::to_owned),
+            0,
+        ));
         // Size parameters, for frame types. From the tokens, since the
         // signature being typed has not parsed.
         let i = self.tokens.partition_point(|t| t.span.start < offset);
