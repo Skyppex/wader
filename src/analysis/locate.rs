@@ -41,7 +41,7 @@ pub fn walk_block<'a>(block: &'a Block, f: &mut impl FnMut(&'a Expr)) {
 pub fn walk_expr<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
     f(e);
     match &e.kind {
-        ExprKind::Number { .. } | ExprKind::Bool(_) | ExprKind::Name(_) => {}
+        ExprKind::Number { .. } | ExprKind::Bool(_) | ExprKind::Name(_) | ExprKind::Path(_) => {}
         ExprKind::Unary(_, x)
         | ExprKind::Cast(x, _)
         | ExprKind::Field(x, _)
@@ -187,6 +187,16 @@ impl Analysis {
     pub fn token_index_before(&self, offset: u32) -> Option<usize> {
         let i = self.tokens.partition_point(|t| t.span.start < offset);
         i.checked_sub(1)
+    }
+
+    /// The audio file at `offset` and how it is written, if a path to one
+    /// is there.
+    pub fn audio_at(&self, offset: u32) -> Option<(&str, &std::path::Path)> {
+        let e = self.expr_at(offset)?;
+        let ExprKind::Path(written) = &e.kind else {
+            return None;
+        };
+        Some((written, self.checked.audio.get(&e.id)?))
     }
 
     /// The innermost expression containing `offset`.

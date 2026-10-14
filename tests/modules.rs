@@ -279,7 +279,10 @@ fn completion_of_import_paths() {
         labels("import @$"),
         ["@effects/", "@gen/", "@mix/", "@util/"]
     );
-    assert_eq!(labels("import @gen/$"), ["@gen/noise", "@gen/osc"]);
+    assert_eq!(
+        labels("import @gen/$"),
+        ["@gen/noise", "@gen/osc", "@gen/sampler"]
+    );
 }
 
 #[test]
@@ -457,4 +460,90 @@ fn the_core_library_in_the_editor() {
         })
         .unwrap_err();
     assert!(e.message.contains("from the core library"), "{}", e.message);
+}
+
+/// A mono 16-bit WAV of `frames` silent frames at 44.1kHz, saying it plays
+/// D4 unchanged.
+fn wav(path: &Path, frames: u32) {
+    let mut fmt = Vec::new();
+    for v in [1u16, 1] {
+        fmt.extend(v.to_le_bytes());
+    }
+    fmt.extend(44_100u32.to_le_bytes());
+    fmt.extend(88_200u32.to_le_bytes());
+    fmt.extend(2u16.to_le_bytes());
+    fmt.extend(16u16.to_le_bytes());
+    let mut smpl = Vec::new();
+    for v in [0u32, 0, 0, 62, 0, 0, 0, 0, 0] {
+        smpl.extend(v.to_le_bytes());
+    }
+    let chunk = |id: &[u8], body: &[u8]| {
+        let mut c = id.to_vec();
+        c.extend((body.len() as u32).to_le_bytes());
+        c.extend(body);
+        c
+    };
+    let mut body = b"WAVE".to_vec();
+    body.extend(chunk(b"fmt ", &fmt));
+    body.extend(chunk(b"data", &vec![0; frames as usize * 2]));
+    body.extend(chunk(b"smpl", &smpl));
+    let mut file = b"RIFF".to_vec();
+    file.extend((body.len() as u32).to_le_bytes());
+    file.extend(body);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, file).unwrap();
+}
+
+#[test]
+fn audio_files_in_the_editor() {
+    let folder = Folder::new("audio", &[("notes.txt", "x")]);
+    wav(&folder.path("drums/kick.wav"), 22_050);
+    wav(&folder.path("pad.flac.wav"), 441);
+    let labels = |src: &str| {
+        let (mut client, pos) = open(&folder, "song.rill", src);
+        let mut labels: Vec<String> = client
+            .request::<r::Completion>(complete_at(&folder, pos))
+            .unwrap()
+            .map(|c| c.items.into_iter().map(|i| i.label).collect())
+            .unwrap_or_default();
+        labels.sort();
+        labels
+    };
+    // Audio files and folders inside a path; not other files.
+    assert_eq!(labels("const KICK = ./$"), ["./drums/", "./pad.flac.wav"]);
+    assert_eq!(labels("const KICK = ./drums/k$"), ["./drums/kick.wav"]);
+    // Fields after an audio file.
+    let fields = labels(
+        "const KICK = ./drums/kick.wav\nrill main() Sample { return KICK.$length / 1s }",
+    );
+    assert!(fields.contains(&"length".to_owned()), "{fields:?}");
+    assert!(fields.contains(&"root".to_owned()), "{fields:?}");
+    // `Audio` is a type.
+    assert!(labels("fn f(a: Au$) Float { 1 }").contains(&"Audio".to_owned()));
+
+    // Hover on the path says what the file is.
+    let src = "const KICK = ./drums/kick.wav\nrill main() Sample { return KICK.length / 1s }$";
+    let (mut client, _) = open(&folder, "song.rill", src);
+    let hover = |client: &mut Client, position| {
+        client
+            .request::<r::HoverRequest>(at(&folder, "song.rill", position))
+            .unwrap()
+            .map(|h| h.contents.value)
+            .unwrap_or_default()
+    };
+    let text = hover(&mut client, Position::new(0, 16));
+    assert!(text.contains("./drums/kick.wav: Audio<1>"), "{text}");
+    assert!(text.contains("0.500s, mono, 44100Hz (22050 frames)."), "{text}");
+    assert!(text.contains("Plays D4 unchanged."), "{text}");
+    let text = hover(&mut client, Position::new(1, 34));
+    assert!(text.contains("length: Time"), "{text}");
+    // A file that is not there is an error on its path.
+    let (client, _) = open(&folder, "song.rill", "const GONE = ./gone.wav$");
+    let messages: Vec<String> = client
+        .diagnostics(&folder.uri("song.rill"))
+        .unwrap()
+        .into_iter()
+        .map(|d| d.message)
+        .collect();
+    assert!(messages.iter().any(|m| m.starts_with("cannot read `./gone.wav`")), "{messages:?}");
 }

@@ -69,6 +69,10 @@ enum Context {
     TriggerStep,
     /// After `seq[id].`: what the instance is doing.
     InstanceField(usize),
+    /// After an audio file and `.`: its fields.
+    AudioField,
+    /// Inside a path that is a value, as in `./kick.wav`: the path so far.
+    AudioPath(String),
     /// Inside an import's quotes: the files and folders next to this one,
     /// and the path typed so far.
     ImportPath(String),
@@ -78,8 +82,9 @@ enum Context {
     },
 }
 
-pub const TYPES: [&str; 10] = [
+pub const TYPES: [&str; 11] = [
     "Sample", "Float", "Int", "Bool", "Freq", "Time", "Pitch", "Interval", "Gain", "Slope",
+    "Audio",
 ];
 
 fn item(
@@ -195,6 +200,20 @@ impl Analysis {
                 })
                 .collect(),
             Context::ImportPath(typed) => self.import_path_items(&typed),
+            Context::AudioPath(typed) => self.audio_path_items(&typed),
+            Context::AudioField => rill::lang::check::AUDIO_FIELDS
+                .iter()
+                .filter_map(|(name, doc)| {
+                    let ty = rill::lang::check::audio_field(name)?;
+                    Some(item(
+                        name,
+                        Kind::Field,
+                        Some(ty.to_string()),
+                        Some((*doc).to_owned()),
+                        0,
+                    ))
+                })
+                .collect(),
             Context::TriggerStep => {
                 let mut items = self.value_items(offset);
                 items.extend(self.callable_items(offset, None));
@@ -250,6 +269,11 @@ impl Analysis {
             let typed = self.text[start as usize..offset as usize].to_owned();
             return (Span { start, end: offset }, Context::ImportPath(typed));
         }
+        if let Some(t) = current.filter(|t| t.kind == TokenKind::Path) {
+            let start = t.span.start;
+            let typed = self.text[start as usize..offset as usize].to_owned();
+            return (Span { start, end: offset }, Context::AudioPath(typed));
+        }
         let (replace, before) = match current {
             Some(t) if is_word(t.kind) => (
                 Span {
@@ -300,6 +324,16 @@ impl Analysis {
             && let Some(seq) = before.checked_sub(2).and_then(|j| self.instance_seq(j))
         {
             return (replace, Context::InstanceField(seq));
+        }
+        if kind(prev) == Some(TokenKind::Dot)
+            && let Some(dot) = prev
+            && let Some(base) = dot.span.start.checked_sub(1).and_then(|o| self.expr_at(o))
+            && matches!(
+                self.checked.types.get(base.id as usize),
+                Some(rill::lang::types::Type::Audio(_))
+            )
+        {
+            return (replace, Context::AudioField);
         }
         if word(prev, "seq") && (starts_line(prev) || before == 1) {
             return (replace, Context::Nothing);
@@ -692,6 +726,42 @@ impl Analysis {
             };
             let detail = (!is_dir).then(|| format!("{stem}.rill"));
             items.push(item(&label, kind, detail, None, sort));
+        }
+        items
+    }
+
+    /// The audio files and folders in the folder of `typed`, a path being
+    /// written as a value, from this file's folder.
+    fn audio_path_items(&self, typed: &str) -> Vec<CompletionItem> {
+        let Some(folder) = typed.rfind('/').map(|i| &typed[..=i]) else {
+            return Vec::new();
+        };
+        let dir = self
+            .path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(std::path::Path::to_owned)
+            .unwrap_or_default();
+        let Ok(entries) = std::fs::read_dir(dir.join(folder)) else {
+            return Vec::new();
+        };
+        let mut items = Vec::new();
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') || !name.bytes().all(rill::lang::lexer::is_path_byte) {
+                continue;
+            }
+            if entry.path().is_dir() {
+                items.push(item(&format!("{folder}{name}/"), Kind::Folder, None, None, 1));
+            } else if rill::audio::is_audio(&name) {
+                items.push(item(
+                    &format!("{folder}{name}"),
+                    Kind::File,
+                    Some("audio file".to_owned()),
+                    None,
+                    0,
+                ));
+            }
         }
         items
     }

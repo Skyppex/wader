@@ -158,7 +158,8 @@ fn renaming_anything_in_the_examples_keeps_them_valid() {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();
-        let a = Analysis::new(&text);
+        // As the file it is, so what it reads next to it is found.
+        let a = Analysis::for_file(&path, &text, &rill::lang::Disk);
         assert!(a.diagnostics.is_empty(), "{}", path.display());
         // Event handler parameters get their type from their name, so they
         // cannot be renamed. Events are on their way out of the language.
@@ -174,7 +175,9 @@ fn renaming_anything_in_the_examples_keeps_them_valid() {
             .index
             .all()
             .iter()
-            .filter(|o| o.is_decl && !event_params.contains(&o.span))
+            // The example's own names, not those of the core modules it
+            // imports.
+            .filter(|o| o.is_decl && a.in_document(o.span) && !event_params.contains(&o.span))
         {
             let new_name = format!("renamed_{count}");
             count += 1;
@@ -199,7 +202,7 @@ fn renaming_anything_in_the_examples_keeps_them_valid() {
             for (span, name) in edits.iter().rev() {
                 out.replace_range(span.start as usize..span.end as usize, name);
             }
-            let after = Analysis::new(&out);
+            let after = Analysis::for_file(&path, &out, &rill::lang::Disk);
             assert!(
                 after.diagnostics.is_empty(),
                 "{}: renaming {:?} broke it: {:?}",

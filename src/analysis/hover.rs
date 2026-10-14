@@ -66,12 +66,16 @@ impl Analysis {
             TokenKind::Ident => match self
                 .hover_seq_field(span)
                 .or_else(|| self.hover_instance_field(span))
+                .or_else(|| self.hover_audio_field(span))
             {
                 Some(h) => h,
                 None => self.hover_builtin_arg(offset, span)?,
             },
             TokenKind::Eof => return None,
-            TokenKind::Path => self.hover_import(span)?,
+            TokenKind::Path => match self.hover_import(span) {
+                Some(h) => h,
+                None => self.hover_audio(offset)?,
+            },
             TokenKind::Fn
             | TokenKind::Const
             | TokenKind::Import
@@ -255,6 +259,59 @@ impl Analysis {
     /// Where something declared in another file comes from.
     fn origin_note(&self, module: usize) -> Option<String> {
         (module != 0).then(|| format!("From `{}`.", self.program.modules.name(module)))
+    }
+
+    /// A path to an audio file: what it is.
+    fn hover_audio(&self, offset: u32) -> Option<String> {
+        let (written, file) = self.audio_at(offset)?;
+        let audio = rill::audio::load(file).ok()?;
+        let channels = match audio.channels() {
+            1 => "mono".to_owned(),
+            2 => "stereo".to_owned(),
+            n => format!("{n} channels"),
+        };
+        let mut facts = vec![format!(
+            "{:.3}s, {channels}, {}Hz ({} frames).",
+            audio.length(),
+            audio.rate,
+            audio.frames()
+        )];
+        if let Some(root) = audio.root {
+            facts.push(format!("Plays {} unchanged.", note_name(root)));
+        }
+        if let Some((start, end)) = audio.looped {
+            let rate = f64::from(audio.rate);
+            facts.push(format!(
+                "Loops from {:.3}s to {:.3}s.",
+                start as f64 / rate,
+                end as f64 / rate
+            ));
+        }
+        facts.push(format!("`{}`", file.display()));
+        Some(markdown(
+            &format!("{written}: Audio<{}>", audio.channels()),
+            [Some(facts.join("\n\n"))],
+        ))
+    }
+
+    /// A field of an audio file, as in `KICK.length`: its type and meaning.
+    fn hover_audio_field(&self, span: Span) -> Option<String> {
+        let i = self.tokens.iter().position(|t| t.span == span)?;
+        let dot = self.tokens.get(i.checked_sub(1)?)?;
+        if dot.kind != TokenKind::Dot {
+            return None;
+        }
+        let base = self.expr_at(dot.span.start.checked_sub(1)?)?;
+        if !matches!(self.checked.types.get(base.id as usize), Some(Type::Audio(_))) {
+            return None;
+        }
+        let field = self.slice(span);
+        let ty = rill::lang::check::audio_field(field)?;
+        let doc = rill::lang::check::AUDIO_FIELDS
+            .iter()
+            .find(|(n, _)| *n == field)
+            .map(|(_, d)| (*d).to_owned());
+        Some(markdown(&format!("{field}: {ty}"), [doc]))
     }
 
     /// An `import`'s path: the file, and what it gives.
@@ -446,6 +503,17 @@ impl Analysis {
             ))],
         ))
     }
+}
+
+/// A pitch as a note name, `C4` for 60, with the cents off it if it is not
+/// on one.
+fn note_name(pitch: f32) -> String {
+    const NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    let note = pitch.round();
+    let n = note as i32;
+    let name = format!("{}{}", NAMES[n.rem_euclid(12) as usize], n.div_euclid(12) - 1);
+    let cents = ((pitch - note) * 100.0).round() as i32;
+    if cents == 0 { name } else { format!("{name} {cents:+} cents") }
 }
 
 #[cfg(test)]

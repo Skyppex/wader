@@ -375,6 +375,9 @@ pub fn type_doc(name: &str) -> Option<&'static str> {
             "How fast a level changes over an interval: a `Gain` over an `Interval`, as in `24dB / 1oct` (24 dB per octave). Times an `Interval`, a `Gain` again. A filter's `slope`."
         }
         "Int" => "A whole number for control logic.",
+        "Audio" => {
+            "An audio file, read when the program is built: `const KICK = ./kick.wav`. `Audio<2>` is a stereo one; plain `Audio` takes any. Read with `read`, play with `@gen/sampler`."
+        }
         "Bool" => "`true` or `false`.",
         "Freq" => "A frequency, written in `Hz` or `kHz`. Converts to samples via the host rate.",
         "Time" => "A duration, written in `s` or `ms`. Converts to samples via the host rate.",
