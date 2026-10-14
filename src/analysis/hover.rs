@@ -264,7 +264,7 @@ impl Analysis {
     /// A path to an audio file: what it is.
     fn hover_audio(&self, offset: u32) -> Option<String> {
         let (written, file) = self.audio_at(offset)?;
-        let audio = rill::audio::load(file).ok()?;
+        let audio = &file.audio;
         let channels = match audio.channels() {
             1 => "mono".to_owned(),
             2 => "stereo".to_owned(),
@@ -287,7 +287,7 @@ impl Analysis {
                 end as f64 / rate
             ));
         }
-        facts.push(format!("`{}`", file.display()));
+        facts.push(format!("`{}`", file.path.display()));
         Some(markdown(
             &format!("{written}: Audio<{}>", audio.channels()),
             [Some(facts.join("\n\n"))],

@@ -191,7 +191,7 @@ impl Analysis {
 
     /// The audio file at `offset` and how it is written, if a path to one
     /// is there.
-    pub fn audio_at(&self, offset: u32) -> Option<(&str, &std::path::Path)> {
+    pub fn audio_at(&self, offset: u32) -> Option<(&str, &rill::audio::AudioRef)> {
         let e = self.expr_at(offset)?;
         let ExprKind::Path(written) = &e.kind else {
             return None;

@@ -22,7 +22,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use rill::lang::ast::{Def, Program};
-use rill::lang::check::{Checked, Global, check, check_partial};
+use rill::lang::check::{Checked, Global, check_partial_with, check_with};
 use rill::lang::lexer::{self, Token};
 use rill::lang::module::{load_tree, normalize};
 use rill::lang::{Diagnostic, SourceMap, Sources, Span, parser};
@@ -87,7 +87,7 @@ impl Analysis {
                 let loaded = load_tree(path, Some(text), sources, false);
                 let mut found = loaded.diagnostics;
                 if !found.iter().any(Diagnostic::is_error) {
-                    match check(&loaded.program) {
+                    match check_with(&loaded.program, sources) {
                         Ok(checked) => found.extend(checked.warnings),
                         Err(diags) => found.extend(diags),
                     }
@@ -96,6 +96,8 @@ impl Analysis {
                 found
             }
         };
+        // What the program is read from; `sources` is its map from here on.
+        let reader = sources;
         let (program, sources) = match path {
             None => {
                 let (tokens, _) = lexer::lex_partial(text);
@@ -107,7 +109,7 @@ impl Analysis {
                 (loaded.program, loaded.sources)
             }
         };
-        let (checked, _) = check_partial(&program);
+        let (checked, _) = check_partial_with(&program, reader);
         let (tokens, _) = lexer::lex_partial(text);
         // Names in every file, so references and renames reach them all.
         let mut all_tokens = tokens.clone();
