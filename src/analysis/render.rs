@@ -284,7 +284,10 @@ pub fn find_handlers<'a>(
 pub fn event_kind_doc(kind: &str) -> Option<&'static str> {
     Some(match kind {
         "note_on" => {
-            "A note starts. Handlers receive a `NoteOn`: `pitch: Pitch` and `velocity: Float` (0–1)."
+            "A note starts. Handlers receive a `NoteOn`: `pitch: Pitch` and `velocity: Float` (0–1). Its `note_change` follows, with the note's pitch, pressure and timbre."
+        }
+        "note_change" => {
+            "A held note changes: its pitch (a slide), pressure (aftertouch) or timbre. Also comes right after every `note_on`, with the note's starting values. Handlers receive a `NoteChange` and run only in the voice holding the note."
         }
         "note_off" => {
             "A note ends. Handlers receive a `NoteOff`: `pitch: Pitch` and `release: Float` (0–1), the release velocity."
@@ -301,6 +304,9 @@ pub fn seq_event_doc(kind: EventKind) -> &'static str {
     match kind {
         EventKind::NoteOn => "A note of the sequence starts.",
         EventKind::NoteOff => "A note of the sequence ends.",
+        EventKind::NoteChange => {
+            "A note of the sequence starts, right after its `note_on`, with its pitch, pressure and timbre; or a held note changes."
+        }
         EventKind::ControlChange => "",
         EventKind::Start => {
             "An instance starts playing: `invoke`, or `trigger` on a stopped one. Never when it goes round again."
@@ -387,6 +393,9 @@ pub fn type_doc(name: &str) -> Option<&'static str> {
         "NoteOff" => {
             "What a `note_off` event's handler receives: `pitch: Pitch` and `release: Float` (0–1), the release velocity."
         }
+        "NoteChange" => {
+            "What a `note_change` event's handler receives: `pitch: Pitch`, `pressure: Float` and `timbre: Float` (0–1), `slide: Bool` (whether the note was already sounding: false for a fresh note), `instance: Int`, and `from: Pitch`, the pitch it was held at."
+        }
         _ => return None,
     })
 }
@@ -419,7 +428,9 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
         "if" | "else" => {
             "Chooses between two values; both branches have the same type. Without `else`, it produces nothing."
         }
-        "as" => "Converts between `Sample`, `Float` and `Int`, element by element through any frame shape. Units never disappear by a cast.",
+        "as" => {
+            "Converts between `Sample`, `Float` and `Int`, element by element through any frame shape. Units never disappear by a cast."
+        }
         "seq" => {
             "Declares a sequence: a pattern of notes that plays when invoked, as in `seq riff(step: 1/8) { C4, _, E4@0.5 }`. It is a sender: `event lead note_on(sender: riff)` hears its notes."
         }
@@ -443,7 +454,7 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
         }
         "start" => "A built-in event: `on start { ... }` runs once, before the first sample.",
         "event" => {
-            "Declares an event: a name, a kind (`note_on`, `note_off` or `control_change`) and optional filters, as in `event keys note_on(sender: 5, channel: 1)`. Handlers use the name."
+            "Declares an event: a name, a kind (`note_on`, `note_off`, `note_change` or `control_change`) and optional filters, as in `event keys note_on(sender: 5, channel: 1)`. Handlers use the name."
         }
         "on" => {
             "Handles a declared event, as in `on keys(note) { ... }`. The parameter is the event's payload, typed by its kind."

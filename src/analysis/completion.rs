@@ -1054,7 +1054,9 @@ impl Analysis {
                     "rill" => Some("rill ${1:name}($2) ${3:Sample} {\n\t$0\n}"),
                     "fn" => Some("fn ${1:name}($2) ${3:Sample} {\n\t$0\n}"),
                     "if" => Some("if $1 {\n\t$0\n}"),
-                    "event" => Some("event ${1:name} ${2|note_on,note_off,control_change|}"),
+                    "event" => {
+                        Some("event ${1:name} ${2|note_on,note_off,note_change,control_change|}")
+                    }
                     "on" => Some("on ${1:event}(${2:note}) {\n\t$0\n}"),
                     "seq" => Some("seq ${1:name}(step: ${2:1/8}) {\n\t$0\n}"),
                     "import" => Some("import \"$0\""),
@@ -1073,7 +1075,7 @@ impl Analysis {
 }
 
 /// A sequence's settings: name, type and what it does.
-const SEQ_SETTINGS: [(&str, &str, &str); 8] = [
+const SEQ_SETTINGS: [(&str, &str, &str); 11] = [
     (
         "meter",
         "N/D",
@@ -1097,7 +1099,22 @@ const SEQ_SETTINGS: [(&str, &str, &str); 8] = [
     (
         "velocity",
         "Float",
-        "The velocity of steps without `@`, 0–1. Default `0.8`.",
+        "The velocity of notes that do not give their own (`@v.5`), 0–1. Default `0.8`.",
+    ),
+    (
+        "pressure",
+        "Float",
+        "The pressure (aftertouch) of notes that do not give their own (`@p.5`), 0–1. Default `0`.",
+    ),
+    (
+        "timbre",
+        "Float",
+        "The timbre of notes that do not give their own (`@t.5`), 0–1. Default `0.5`.",
+    ),
+    (
+        "release",
+        "Float",
+        "The release of notes that do not give their own (`@r.5`), 0–1. Default `0.5`.",
     ),
     ("repeat", "Int", "How many times it plays. Default `1`."),
     ("loop", "Bool", "Play until halted. Default `false`."),
@@ -1319,7 +1336,10 @@ mod tests {
     fn events() {
         let decls = "event keys note_on(sender: 1)\nevent knob control_change\n";
         // The kind after the name.
-        has("event keys $", &["note_on", "note_off", "control_change"]);
+        has(
+            "event keys $",
+            &["note_on", "note_off", "note_change", "control_change"],
+        );
         has("event keys note_o$", &["note_on", "note_off"]);
         assert!(labels("event $").is_empty(), "naming the event");
         // Filters inside the parentheses.
@@ -1357,9 +1377,12 @@ mod tests {
                 "instances",
                 "loop",
                 "meter",
+                "pressure",
+                "release",
                 "repeat",
                 "step",
                 "tempo",
+                "timbre",
                 "velocity"
             ]
         );
@@ -1381,7 +1404,9 @@ mod tests {
         // Settings when invoking a sequence; fields when invoking an event.
         assert_eq!(
             labels(&body("invoke riff($")),
-            ["gate", "loop", "repeat", "tempo", "velocity"]
+            [
+                "gate", "loop", "pressure", "release", "repeat", "tempo", "timbre", "velocity"
+            ]
         );
         assert_eq!(
             labels(&body("invoke lead($")),
