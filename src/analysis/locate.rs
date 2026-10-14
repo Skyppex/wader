@@ -130,6 +130,41 @@ impl Analysis {
         Some((self.seq_named(base)?, self.slice(span)))
     }
 
+    /// The sequence of `seq[...]` whose `]` is token `close`.
+    pub fn instance_seq(&self, close: usize) -> Option<usize> {
+        use rill::lang::lexer::TokenKind;
+        if self.tokens.get(close)?.kind != TokenKind::RBracket {
+            return None;
+        }
+        let mut depth = 0u32;
+        let mut i = close;
+        loop {
+            match self.tokens[i].kind {
+                TokenKind::RBracket => depth += 1,
+                TokenKind::LBracket => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            i = i.checked_sub(1)?;
+        }
+        self.seq_named(self.tokens.get(i.checked_sub(1)?)?)
+    }
+
+    /// A field of a playing instance at `span`, as in `riff[id].step_time`:
+    /// the sequence and the field's name.
+    pub fn instance_field_at(&self, span: Span) -> Option<(usize, &str)> {
+        let i = self.tokens.iter().position(|t| t.span == span)?;
+        let dot = self.tokens.get(i.checked_sub(1)?)?;
+        if dot.kind != rill::lang::lexer::TokenKind::Dot {
+            return None;
+        }
+        Some((self.instance_seq(i.checked_sub(2)?)?, self.slice(span)))
+    }
+
     /// The token containing `offset`, or else the one ending there.
     pub fn token_at(&self, offset: u32) -> Option<&Token> {
         let i = self.tokens.partition_point(|t| t.span.end < offset);

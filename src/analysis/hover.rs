@@ -63,7 +63,10 @@ impl Analysis {
             TokenKind::Ident if self.is_event_keyword(span) => {
                 keyword_doc(self.slice(span))?.to_owned()
             }
-            TokenKind::Ident => match self.hover_seq_field(span) {
+            TokenKind::Ident => match self
+                .hover_seq_field(span)
+                .or_else(|| self.hover_instance_field(span))
+            {
                 Some(h) => h,
                 None => self.hover_builtin_arg(offset, span)?,
             },
@@ -403,6 +406,19 @@ impl Analysis {
         Some(markdown(&format!("{name}.{field}: {ty} = {value}"), [doc]))
     }
 
+    /// A field of a playing instance, as in `riff[id].step_time`: its type
+    /// and meaning.
+    fn hover_instance_field(&self, span: Span) -> Option<String> {
+        let (seq, field) = self.instance_field_at(span)?;
+        let ty = rill::lang::check::instance_field(field)?;
+        let doc = rill::lang::check::INSTANCE_FIELDS
+            .iter()
+            .find(|(n, _)| *n == field)
+            .map(|(_, d)| (*d).to_owned());
+        let name = &self.program.seqs[seq].name.name;
+        Some(markdown(&format!("{name}[id].{field}: {ty}"), [doc]))
+    }
+
     /// The name of an argument to a built-in, as in `equal(E4, a4: 432Hz)`.
     fn hover_builtin_arg(&self, offset: u32, span: Span) -> Option<String> {
         let call = self.call_at(offset)?;
@@ -595,7 +611,7 @@ rill osc(freq: Freq, gain: Gain = -6dB) Sample {
     #[test]
     fn a_sequences_events_and_fields() {
         let src = "seq riff(meter: 3/4, step: 1/8) { C4, _, E4 }\n\
-                   rill main() Sample {\n    on start { invoke riff }\n    on riff_step(s) { }\n    let n = riff.step_count\n    return 0\n}";
+                   rill main() Sample {\n    on start { invoke riff }\n    on riff_step(s) { }\n    let n = riff.step_count\n    let t = riff[1].step_time\n    return 0\n}";
         let at = |needle: &str| {
             let i = src.find(needle).unwrap();
             hover(&format!("{}${}", &src[..i], &src[i..]))
@@ -619,6 +635,12 @@ rill osc(freq: Freq, gain: Gain = -6dB) Sample {
             "{field}"
         );
         assert!(field.contains("rests included"), "{field}");
+        let field = at("step_time").unwrap();
+        assert!(
+            field.starts_with("```rill\nriff[id].step_time: Time\n```"),
+            "{field}"
+        );
+        assert!(field.contains("How long one step lasts"), "{field}");
     }
 
     #[test]

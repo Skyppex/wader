@@ -65,6 +65,10 @@ enum Context {
     Pipe(Option<Type>),
     /// After `riff.`: a field of a sequence.
     SeqField(usize),
+    /// Right after `trigger`: an expression, but not a sequence yet.
+    TriggerStep,
+    /// After `seq[id].`: what the instance is doing.
+    InstanceField(usize),
     /// Inside an import's quotes: the files and folders next to this one,
     /// and the path typed so far.
     ImportPath(String),
@@ -129,6 +133,8 @@ impl Analysis {
             }
             Context::ConstValue => {
                 let mut items = self.value_items(offset);
+                // For their fields: `riff.step_count`.
+                items.extend(self.seq_items());
                 // A `const` is worked out before any fn or rill runs.
                 items.extend(self.callable_items(offset, None).into_iter().filter(|i| {
                     !self
@@ -175,10 +181,30 @@ impl Analysis {
             Context::Unit => unit_items(),
             Context::Pipe(piped) => self.callable_items(offset, piped.as_ref()),
             Context::SeqField(seq) => self.seq_field_items(seq),
+            Context::InstanceField(_) => rill::lang::check::INSTANCE_FIELDS
+                .iter()
+                .filter_map(|(name, doc)| {
+                    let ty = rill::lang::check::instance_field(name)?;
+                    Some(item(
+                        name,
+                        Kind::Field,
+                        Some(ty.to_string()),
+                        Some((*doc).to_owned()),
+                        0,
+                    ))
+                })
+                .collect(),
             Context::ImportPath(typed) => self.import_path_items(&typed),
+            Context::TriggerStep => {
+                let mut items = self.value_items(offset);
+                items.extend(self.callable_items(offset, None));
+                items
+            }
             Context::Expr { stmt_start } => {
                 let mut items = self.named_arg_items(offset);
                 items.extend(self.value_items(offset));
+                // For their fields: `riff.step_count`, `riff[id].step_time`.
+                items.extend(self.seq_items());
                 items.extend(self.callable_items(offset, None));
                 let mut keywords = vec!["if", "fn", "true", "false"];
                 if self.at_rill_arg_start(offset) {
@@ -278,6 +304,11 @@ impl Analysis {
         {
             return (replace, Context::SeqField(seq));
         }
+        if kind(prev) == Some(TokenKind::Dot)
+            && let Some(seq) = before.checked_sub(2).and_then(|j| self.instance_seq(j))
+        {
+            return (replace, Context::InstanceField(seq));
+        }
         if word(prev, "seq") && (starts_line(prev) || before == 1) {
             return (replace, Context::Nothing);
         }
@@ -362,6 +393,8 @@ impl Analysis {
             Some(TokenKind::LBrace | TokenKind::RBrace | TokenKind::Semi) | None => {
                 Context::Expr { stmt_start: true }
             }
+            // `trigger STEP seq`: the step comes first, so no sequence yet.
+            Some(_) if word(prev, "trigger") => Context::TriggerStep,
             Some(_) => {
                 let gap =
                     &self.text[prev.expect("matched").span.end as usize..replace.start as usize];
@@ -1301,6 +1334,25 @@ mod tests {
                 "steps_per_beat"
             ]
         );
+        // The sequence itself, where a value goes.
+        has(&main("let n = $"), &["riff"]);
+        has(&format!("{head}const N = $"), &["riff"]);
+        // What an instance is doing, after `riff[id].`.
+        let mut fields = labels(&main("let t = riff[id].$"));
+        fields.sort();
+        assert_eq!(
+            fields,
+            [
+                "beat_time",
+                "pass",
+                "playing",
+                "progress",
+                "step",
+                "step_time",
+                "tempo"
+            ]
+        );
+        has(&main("let t = riff[ids[0]].st$"), &["step_time"]);
     }
 
     #[test]

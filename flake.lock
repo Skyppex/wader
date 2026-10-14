@@ -115,11 +115,11 @@
     "rill": {
       "flake": false,
       "locked": {
-        "lastModified": 1791966170,
-        "narHash": "sha256-lQhw8a/FWiRkMdn1J7tXW/LQz9/OQP9RK9eudKeTYIg=",
+        "lastModified": 1791978829,
+        "narHash": "sha256-c3TWwV2QcXEr28y5qIg0AftqV38nFS3cKYSzMCZEld8=",
         "owner": "skyppex",
         "repo": "rill",
-        "rev": "b27ebac24e5dd1d78ddceeae5f3a2b8eec5d985d",
+        "rev": "4820e21eeb50b4cc008e482b3118cc2990dce2bb",
         "type": "github"
       },
       "original": {
