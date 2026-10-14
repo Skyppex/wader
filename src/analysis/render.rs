@@ -414,10 +414,10 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
         }
         "let" => "Binds a value. A stream bound with `let` and used twice is one instance.",
         "import" => {
-            "Uses another file: `import \"lib/osc\"` reads `lib/osc.rill` next to this file, without writing `.rill`. Only what that file exports can be used here."
+            "Uses another file: `import ./lib/osc` reads `lib/osc.rill` next to this file, without writing `.rill`; `import @gen/osc` a module of the core library. Only what that file exports can be used here."
         }
         "export" => {
-            "Makes a top-level `fn`, `rill`, `const`, `event` or `seq` usable by files that import this one. `export import \"osc\"` passes on everything `osc` exports."
+            "Makes a top-level `fn`, `rill`, `const`, `event` or `seq` usable by files that import this one. `export import ./osc` passes on everything `osc` exports."
         }
         "const" => {
             "Names a value worked out once, when the program is built: `const VOICES = 8`. At the top level it belongs to the file; in a block, to the block. A whole number can be a size, as in `[Float; VOICES]`."

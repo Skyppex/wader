@@ -87,7 +87,7 @@ fn errors_in_an_imported_file_show_on_its_import() {
     let (client, _) = open(
         &folder,
         "song.rill",
-        "import \"osc\"\nrill main() Sample { return 0 }$",
+        "import ./osc\nrill main() Sample { return 0 }$",
     );
     let diags = client.diagnostics(&folder.uri("song.rill")).unwrap();
     assert_eq!(diags.len(), 1, "{diags:#?}");
@@ -105,7 +105,7 @@ fn editing_an_open_import_updates_its_importers() {
     let (mut client, _) = open(
         &folder,
         "song.rill",
-        "import \"osc\"\nrill main() Sample { return saw(110Hz) }$",
+        "import ./osc\nrill main() Sample { return saw(110Hz) }$",
     );
     assert_eq!(client.diagnostics(&folder.uri("song.rill")).unwrap(), []);
     // Unsaved: `saw` is no longer exported.
@@ -120,7 +120,7 @@ fn editing_an_open_import_updates_its_importers() {
         .filter(|d| d.severity == Some(lsp::DiagnosticSeverity::Error))
         .map(|d| d.message.lines().next().unwrap())
         .collect();
-    assert_eq!(errors, ["`saw` is private to \"osc\""]);
+    assert_eq!(errors, ["`saw` is private to `osc`"]);
     // Closed without saving: back to what is on disk.
     client.notify::<lsp::notification::DidCloseTextDocument>(lsp::DidCloseTextDocumentParams {
         text_document: lsp::TextDocumentIdentifier {
@@ -136,7 +136,7 @@ fn imports_that_are_not_allowed() {
     let (client, _) = open(
         &folder,
         "song.rill",
-        "import \"osc.rill\"\nimport \"kick.wav\"\nimport \"my-osc\"\nimport \"nothere\"\nrill main() Sample { return 0 }$",
+        "import ./osc.rill\nimport ./kick.wav\nimport ./my-osc\nimport ./nothere\nrill main() Sample { return 0 }$",
     );
     let messages: Vec<String> = client
         .diagnostics(&folder.uri("song.rill"))
@@ -149,24 +149,16 @@ fn imports_that_are_not_allowed() {
         [
             "leave out `.rill`: a module is imported by its name",
             "only Rill files can be imported, and `kick.wav` is not one",
-            "`my-osc` is not a valid module name: `-` would read as minus",
-            "cannot find module \"nothere\"",
+            "cannot find module `./nothere`",
         ]
     );
 }
 
 #[test]
-fn a_file_name_that_is_not_a_module_name_is_a_warning() {
+fn any_file_name_is_fine() {
     let folder = Folder::new("names", &[]);
     let (client, _) = open(&folder, "my-song.rill", "rill main() Sample { return 0 }$");
-    let diags = client.diagnostics(&folder.uri("my-song.rill")).unwrap();
-    assert_eq!(diags.len(), 1);
-    assert_eq!(diags[0].severity, Some(lsp::DiagnosticSeverity::Warning));
-    assert!(
-        diags[0]
-            .message
-            .contains("rename the file to `my_song.rill`")
-    );
+    assert_eq!(client.diagnostics(&folder.uri("my-song.rill")).unwrap(), []);
 }
 
 #[test]
@@ -175,7 +167,7 @@ fn definitions_in_other_files() {
     let (mut client, pos) = open(
         &folder,
         "song.rill",
-        "import \"osc\"\nrill main() Sample { return s$aw(110Hz) }",
+        "import ./osc\nrill main() Sample { return s$aw(110Hz) }",
     );
     let found = client
         .request::<r::GotoDefinition>(at(&folder, "song.rill", pos))
@@ -199,7 +191,7 @@ fn hover_says_where_things_come_from() {
     let (mut client, pos) = open(
         &folder,
         "song.rill",
-        "import \"osc\"\nrill main() Sample { return s$aw(110Hz) }",
+        "import ./osc\nrill main() Sample { return s$aw(110Hz) }",
     );
     let hover = |client: &mut Client, position| {
         client
@@ -212,7 +204,7 @@ fn hover_says_where_things_come_from() {
     let text = hover(&mut client, pos);
     assert!(text.contains("rill saw(freq: Freq) Sample"), "{text}");
     assert!(text.contains("A ramp from -1 to 1."), "{text}");
-    assert!(text.contains("From \"osc\"."), "{text}");
+    assert!(text.contains("From `osc`."), "{text}");
     let text = hover(&mut client, Position::new(0, 9));
     assert!(text.contains("Exports `saw`."), "{text}");
     assert!(
@@ -227,7 +219,7 @@ fn completion_offers_what_is_imported_and_nothing_private() {
     let (mut client, pos) = open(
         &folder,
         "song.rill",
-        "import \"osc\"\nrill main() Sample { return $ }",
+        "import ./osc\nrill main() Sample { return $ }",
     );
     let labels: Vec<String> = client
         .request::<r::Completion>(complete_at(&folder, pos))
@@ -268,24 +260,26 @@ fn completion_of_import_paths() {
     // Never the extension, never the file itself, never a name that cannot
     // be imported.
     assert_eq!(
-        labels("import \"$\""),
+        labels("import $"),
         [
             "../",
+            "./lib/",
+            "./my-thing",
+            "./osc",
             "@effects/",
             "@gen/",
             "@mix/",
-            "@util/",
-            "lib/",
-            "osc"
+            "@util/"
         ]
     );
-    assert_eq!(labels("import \"lib/$\""), ["lib/fx"]);
+    assert_eq!(labels("import ./lib/$"), ["./lib/fx"]);
+    assert_eq!(labels("import ./l$"), ["../", "./lib/", "./my-thing", "./osc"]);
     // The core library, from anywhere.
     assert_eq!(
-        labels("import \"@$\""),
+        labels("import @$"),
         ["@effects/", "@gen/", "@mix/", "@util/"]
     );
-    assert_eq!(labels("import \"@gen/$\""), ["@gen/noise", "@gen/osc"]);
+    assert_eq!(labels("import @gen/$"), ["@gen/noise", "@gen/osc"]);
 }
 
 #[test]
@@ -294,7 +288,7 @@ fn renaming_reaches_other_files() {
     let (mut client, pos) = open(
         &folder,
         "song.rill",
-        "import \"osc\"\nrill main() Sample { return s$aw(110Hz) + saw(1Hz) }",
+        "import ./osc\nrill main() Sample { return s$aw(110Hz) + saw(1Hz) }",
     );
     let edit = client
         .request::<r::Rename>(lsp::RenameParams {
@@ -326,12 +320,12 @@ fn renaming_an_export_reaches_the_files_importing_it() {
         &[
             (
                 "song.rill",
-                "import \"synth\"\nrill main() Sample { return saw(1Hz) }\n",
+                "import ./synth\nrill main() Sample { return saw(1Hz) }\n",
             ),
-            ("synth.rill", "export import \"osc\"\n"),
+            ("synth.rill", "export import ./osc\n"),
             (
                 "other/demo.rill",
-                "import \"../osc\"\nrill main() Sample { return saw(2Hz) }\n",
+                "import ../osc\nrill main() Sample { return saw(2Hz) }\n",
             ),
             (
                 "unrelated.rill",
@@ -371,7 +365,7 @@ fn moving_files_keeps_imports_working() {
     let (mut client, _) = open(
         &folder,
         "song.rill",
-        "import \"osc\"\nimport \"lib/fx\"\nrill main() Sample { return saw(1Hz) * f() }$",
+        "import ./osc\nimport ./lib/fx\nrill main() Sample { return saw(1Hz) * f() }$",
     );
     let rename = |client: &mut Client, from: &str, to: &str| {
         client
@@ -389,7 +383,7 @@ fn moving_files_keeps_imports_working() {
     let changes = rename(&mut client, "osc.rill", "oscillators.rill");
     let edits = &changes[&folder.uri("song.rill")];
     assert_eq!(edits.len(), 1);
-    assert_eq!(edits[0].new_text, "\"oscillators\"");
+    assert_eq!(edits[0].new_text, "./oscillators");
     assert_eq!(edits[0].range, common::range(0, 7, 0, 12));
     // Moving the importing file into a folder: both its imports change.
     let changes = rename(&mut client, "song.rill", "songs/song.rill");
@@ -397,18 +391,18 @@ fn moving_files_keeps_imports_working() {
         .iter()
         .map(|e| e.new_text.as_str())
         .collect();
-    assert_eq!(texts, ["\"../osc\"", "\"../lib/fx\""]);
+    assert_eq!(texts, ["../osc", "../lib/fx"]);
     // Renaming a folder.
     let changes = rename(&mut client, "lib", "sound");
     assert_eq!(
         changes[&folder.uri("song.rill")][0].new_text,
-        "\"sound/fx\""
+        "./sound/fx"
     );
     // Renaming a file in a folder.
     let changes = rename(&mut client, "lib/fx.rill", "lib/effects.rill");
     assert_eq!(
         changes[&folder.uri("song.rill")][0].new_text,
-        "\"lib/effects\""
+        "./lib/effects"
     );
     // A file nothing imports: no edits.
     assert!(rename(&mut client, "other.rill", "renamed.rill").is_empty());
@@ -431,7 +425,7 @@ fn the_core_library_in_the_editor() {
     let (mut client, pos) = open(
         &folder,
         "song.rill",
-        "import \"@gen/osc\"\nrill main() Sample { return s$aw(110Hz) }",
+        "import @gen/osc\nrill main() Sample { return s$aw(110Hz) }",
     );
     assert_eq!(client.diagnostics(&folder.uri("song.rill")).unwrap(), []);
     // Its source opens from a read-only copy.
@@ -451,7 +445,7 @@ fn the_core_library_in_the_editor() {
         .unwrap()
         .contents
         .value;
-    assert!(text.contains("From \"@gen/osc\"."), "{text}");
+    assert!(text.contains("From `@gen/osc`."), "{text}");
     // It cannot be renamed.
     let e = client
         .request::<r::Rename>(lsp::RenameParams {

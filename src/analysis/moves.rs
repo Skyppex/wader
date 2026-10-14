@@ -29,7 +29,7 @@ pub fn moved(path: &Path, moves: &[Move]) -> PathBuf {
 
 /// The edits that keep the imports of the file at `path` (its old place)
 /// pointing at the same files once `moves` are made: for each import whose
-/// path changes, its span (quotes included) and the new text.
+/// path changes, its span and the new path.
 pub fn import_edits(path: &Path, text: &str, moves: &[Move]) -> Vec<(Span, String)> {
     let (tokens, _) = lexer::lex_partial(text);
     // Only the imports are needed, and they are found even in a file that
@@ -43,19 +43,31 @@ pub fn import_edits(path: &Path, text: &str, moves: &[Move]) -> Vec<(Span, Strin
     let new_dir = new_path.parent().unwrap_or(Path::new(""));
     let mut edits = Vec::new();
     for import in &program.imports {
-        // A path that is not a module name, or has an extension, is left
-        // for the diagnostics to explain.
-        if rill::lang::module::check_path(&import.path, import.path_span).is_err() {
+        // A path with a mistake in it is left for the diagnostics to
+        // explain; a core module never moves.
+        if rill::lang::module::check_path(&import.path, import.path_span).is_err()
+            || import.path.starts_with('@')
+        {
             continue;
         }
         let target = normalize(&old_dir.join(format!("{}.rill", import.path)));
         let new_target = moved(&target, moves);
-        let Some(rel) = relative(new_dir, &new_target) else {
-            continue;
+        // An absolute path stays absolute.
+        let new = if import.path.starts_with('/') {
+            new_target.to_string_lossy().replace('\\', "/")
+        } else {
+            let Some(rel) = relative(new_dir, &new_target) else {
+                continue;
+            };
+            if rel.starts_with("../") {
+                rel
+            } else {
+                format!("./{rel}")
+            }
         };
-        let rel = rel.strip_suffix(".rill").unwrap_or(&rel).to_owned();
-        if rel != import.path {
-            edits.push((import.path_span, format!("\"{rel}\"")));
+        let new = new.strip_suffix(".rill").unwrap_or(&new).to_owned();
+        if new != import.path {
+            edits.push((import.path_span, new));
         }
     }
     edits
@@ -101,60 +113,73 @@ mod tests {
 
     #[test]
     fn renaming_an_imported_file() {
-        let src = "import \"osc\"\nimport \"fx\"\nrill main() Sample { return 0 }";
+        let src = "import ./osc\nimport ./fx\nrill main() Sample { return 0 }";
         assert_eq!(
             paths(
                 "/s/song.rill",
                 src,
                 &[mv("/s/osc.rill", "/s/oscillators.rill")]
             ),
-            ["\"oscillators\""]
+            ["./oscillators"]
         );
     }
 
     #[test]
     fn moving_an_imported_file() {
-        let src = "import \"osc\"";
+        let src = "import ./osc";
         assert_eq!(
             paths("/s/song.rill", src, &[mv("/s/osc.rill", "/s/lib/osc.rill")]),
-            ["\"lib/osc\""]
+            ["./lib/osc"]
         );
     }
 
     #[test]
     fn moving_the_importing_file() {
-        let src = "import \"osc\"\nimport \"lib/fx\"";
+        let src = "import ./osc\nimport ./lib/fx";
         assert_eq!(
             paths(
                 "/s/song.rill",
                 src,
                 &[mv("/s/song.rill", "/s/songs/song.rill")]
             ),
-            ["\"../osc\"", "\"../lib/fx\""]
+            ["../osc", "../lib/fx"]
         );
     }
 
     #[test]
     fn moving_a_folder() {
         // Inside the folder nothing changes; from outside, the folder's name.
-        let src = "import \"fx\"";
+        let src = "import ./fx";
         assert_eq!(
             paths("/s/lib/osc.rill", src, &[mv("/s/lib", "/s/sound")]),
             Vec::<String>::new()
         );
-        let src = "import \"lib/osc\"";
+        let src = "import ./lib/osc";
         assert_eq!(
             paths("/s/song.rill", src, &[mv("/s/lib", "/s/sound")]),
-            ["\"sound/osc\""]
+            ["./sound/osc"]
         );
     }
 
     #[test]
     fn imports_that_do_not_move_stay() {
-        let src = "import \"osc\"\nimport \"osc.rill\"";
+        let src = "import ./osc\nimport ./osc.rill\nimport @gen/osc";
         assert_eq!(
             paths("/s/song.rill", src, &[mv("/s/other.rill", "/s/x.rill")]),
             Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn core_modules_stay_and_absolute_paths_stay_absolute() {
+        let src = "import @gen/osc\nimport /lib/osc";
+        assert_eq!(
+            paths("/s/song.rill", src, &[mv("/s/song.rill", "/s/songs/song.rill")]),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            paths("/s/song.rill", src, &[mv("/lib/osc.rill", "/lib/saw.rill")]),
+            ["/lib/saw"]
         );
     }
 }

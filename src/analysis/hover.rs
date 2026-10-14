@@ -71,7 +71,7 @@ impl Analysis {
                 None => self.hover_builtin_arg(offset, span)?,
             },
             TokenKind::Eof => return None,
-            TokenKind::Str => self.hover_import(span)?,
+            TokenKind::Path => self.hover_import(span)?,
             TokenKind::Fn
             | TokenKind::Const
             | TokenKind::Import
@@ -254,7 +254,7 @@ impl Analysis {
 
     /// Where something declared in another file comes from.
     fn origin_note(&self, module: usize) -> Option<String> {
-        (module != 0).then(|| format!("From \"{}\".", self.program.modules.name(module)))
+        (module != 0).then(|| format!("From `{}`.", self.program.modules.name(module)))
     }
 
     /// An `import`'s path: the file, and what it gives.
@@ -295,7 +295,7 @@ impl Analysis {
             .iter()
             .enumerate()
             .filter(|&(j, i)| modules.import(j) == target && i.export.is_some())
-            .map(|(_, i)| format!("\"{}\"", i.path))
+            .map(|(_, i)| format!("`{}`", i.path))
             .collect();
         let list = |xs: Vec<String>| xs.join(", ");
         let exports = match names.is_empty() {
@@ -313,7 +313,7 @@ impl Analysis {
         };
         let _ = k;
         Some(markdown(
-            &format!("import \"{}\"", import.path),
+            &format!("import {}", import.path),
             [
                 Some(format!("`{file}`")),
                 Some(exports),

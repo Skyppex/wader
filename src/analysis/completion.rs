@@ -246,15 +246,7 @@ impl Analysis {
             .checked_sub(1)
             .map(|j| &self.tokens[j])
             .filter(|t| t.span.end >= offset && t.kind != TokenKind::Eof);
-        if let Some(t) = current.filter(|t| t.kind == TokenKind::Str) {
-            let text = self.slice(t.span);
-            let closed = text.len() > 1 && text.ends_with('"');
-            let inside = offset > t.span.start && (offset < t.span.end || !closed);
-            let after_import = i >= 2 && self.tokens[i - 2].kind == TokenKind::Import;
-            if !inside || !after_import {
-                return (here, Context::Nothing);
-            }
-            let start = t.span.start + 1;
+        if let Some(start) = self.import_path_start(offset) {
             let typed = self.text[start as usize..offset as usize].to_owned();
             return (Span { start, end: offset }, Context::ImportPath(typed));
         }
@@ -609,17 +601,39 @@ impl Analysis {
             .collect()
     }
 
-    /// The program's sequences.
-    /// The modules that can be imported from here: `.rill` files with
-    /// names that are valid module names, without the extension, and the
-    /// folders that lead to more. `typed` is the path so far; its folders
-    /// are kept in every label.
+    /// Where the path of an `import` on the cursor's line starts, if the
+    /// cursor is in it: `import ./li|` or `export import |`.
+    fn import_path_start(&self, offset: u32) -> Option<u32> {
+        let before = &self.text[..offset as usize];
+        let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+        let line = &before[line_start..];
+        let rest = line.trim_start();
+        let rest = rest
+            .strip_prefix("export")
+            .filter(|r| r.starts_with([' ', '\t']))
+            .map_or(rest, str::trim_start);
+        let rest = rest.strip_prefix("import")?;
+        let path = rest.trim_start();
+        if path.len() == rest.len()
+            || !path
+                .bytes()
+                .all(|b| rill::lang::lexer::is_path_byte(b) || b == b'@')
+        {
+            return None;
+        }
+        Some(offset - path.len() as u32)
+    }
+
+    /// The modules that can be imported from here: `.rill` files, without
+    /// the extension, and the folders that lead to more, as paths from this
+    /// file (`./osc`, `./lib/`, `../`); and the core library's (`@gen/osc`).
+    /// `typed` is the path so far; its folders are kept in every label.
     fn import_path_items(&self, typed: &str) -> Vec<CompletionItem> {
         let folder = typed.rfind('/').map_or("", |i| &typed[..=i]);
         // The core library, wherever this file is: `@gen/`, then its
         // modules.
         let mut core = Vec::new();
-        if folder.is_empty() || typed.starts_with('@') {
+        if typed.is_empty() || typed.starts_with('@') {
             for name in rill::lang::core::names() {
                 let Some(rest) = name.strip_prefix(folder) else {
                     continue;
@@ -639,14 +653,21 @@ impl Analysis {
         let Some(here) = &self.path else {
             return core;
         };
+        // Nothing typed yet, or a start of `./`: files next to this one.
+        let folder = if folder.is_empty() { "./" } else { folder };
         let dir = here.parent().unwrap_or(std::path::Path::new(""));
         let Ok(entries) = std::fs::read_dir(dir.join(folder)) else {
             return core;
         };
         let me = rill::lang::Disk.canonical(here);
         let mut items = core;
-        if folder.split('/').all(|p| p.is_empty() || p == "..") {
-            items.push(item(&format!("{folder}../"), Kind::Folder, None, None, 2));
+        if folder
+            .trim_end_matches('/')
+            .split('/')
+            .all(|p| p == "." || p == "..")
+        {
+            let up = if folder == "./" { "../".to_owned() } else { format!("{folder}../") };
+            items.push(item(&up, Kind::Folder, None, None, 2));
         }
         for entry in entries.flatten() {
             let path = entry.path();
@@ -657,8 +678,10 @@ impl Analysis {
                 (false, Some(stem)) => stem,
                 (false, None) => continue,
             };
-            // A name that cannot be imported is not offered.
-            if rill::lang::module::name_problem(stem).is_some()
+            // A name a path cannot hold (a space), or this file, is not
+            // offered.
+            if !stem.bytes().all(rill::lang::lexer::is_path_byte)
+                || stem.starts_with('.')
                 || (!is_dir && rill::lang::Disk.canonical(&path) == me)
             {
                 continue;
@@ -1092,7 +1115,7 @@ impl Analysis {
                     }
                     "on" => Some("on ${1:event}(${2:note}) {\n\t$0\n}"),
                     "seq" => Some("seq ${1:name}(step: ${2:1/8}) {\n\t$0\n}"),
-                    "import" => Some("import \"$0\""),
+                    "import" => Some("import ./$0"),
                     _ => None,
                 };
                 let mut it = item(k, Kind::Keyword, None, keyword_doc(k).map(str::to_owned), 4);
