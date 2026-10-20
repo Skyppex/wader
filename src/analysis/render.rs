@@ -375,9 +375,6 @@ pub fn type_doc(name: &str) -> Option<&'static str> {
             "How fast a level changes over an interval: a `Gain` over an `Interval`, as in `24dB / 1oct` (24 dB per octave). Times an `Interval`, a `Gain` again. A filter's `slope`."
         }
         "Int" => "A whole number for control logic.",
-        "Image" => {
-            "An image, read when the program is built: `const FACE = ./face.png`. Its `width` and `height` are sizes. Read it with `pixel`, play it with `@gen/spectral`."
-        }
         "Audio" => {
             "An audio file, read when the program is built: `const KICK = ./kick.wav`. `Audio<2>` is a stereo one; plain `Audio` takes any. Read with `read`, play with `@gen/sampler`."
         }
