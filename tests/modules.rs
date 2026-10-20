@@ -273,7 +273,10 @@ fn completion_of_import_paths() {
         ]
     );
     assert_eq!(labels("import ./lib/$"), ["./lib/fx"]);
-    assert_eq!(labels("import ./l$"), ["../", "./lib/", "./my-thing", "./osc"]);
+    assert_eq!(
+        labels("import ./l$"),
+        ["../", "./lib/", "./my-thing", "./osc"]
+    );
     // The core library, from anywhere.
     assert_eq!(
         labels("import @$"),
@@ -281,7 +284,7 @@ fn completion_of_import_paths() {
     );
     assert_eq!(
         labels("import @gen/$"),
-        ["@gen/noise", "@gen/osc", "@gen/sampler"]
+        ["@gen/noise", "@gen/osc", "@gen/sampler", "@gen/spectral"]
     );
 }
 
@@ -397,10 +400,7 @@ fn moving_files_keeps_imports_working() {
     assert_eq!(texts, ["../osc", "../lib/fx"]);
     // Renaming a folder.
     let changes = rename(&mut client, "lib", "sound");
-    assert_eq!(
-        changes[&folder.uri("song.rill")][0].new_text,
-        "./sound/fx"
-    );
+    assert_eq!(changes[&folder.uri("song.rill")][0].new_text, "./sound/fx");
     // Renaming a file in a folder.
     let changes = rename(&mut client, "lib/fx.rill", "lib/effects.rill");
     assert_eq!(
@@ -513,9 +513,8 @@ fn audio_files_in_the_editor() {
     assert_eq!(labels("const KICK = ./$"), ["./drums/", "./pad.flac.wav"]);
     assert_eq!(labels("const KICK = ./drums/k$"), ["./drums/kick.wav"]);
     // Fields after an audio file.
-    let fields = labels(
-        "const KICK = ./drums/kick.wav\nrill main() Sample { return KICK.$length / 1s }",
-    );
+    let fields =
+        labels("const KICK = ./drums/kick.wav\nrill main() Sample { return KICK.$length / 1s }");
     assert!(fields.contains(&"length".to_owned()), "{fields:?}");
     assert!(fields.contains(&"root".to_owned()), "{fields:?}");
     // `Audio` is a type.
@@ -533,7 +532,10 @@ fn audio_files_in_the_editor() {
     };
     let text = hover(&mut client, Position::new(0, 16));
     assert!(text.contains("./drums/kick.wav: Audio<1>"), "{text}");
-    assert!(text.contains("0.500s, mono, 44100Hz (22050 frames)."), "{text}");
+    assert!(
+        text.contains("0.500s, mono, 44100Hz (22050 frames)."),
+        "{text}"
+    );
     assert!(text.contains("Plays D4 unchanged."), "{text}");
     let text = hover(&mut client, Position::new(1, 34));
     assert!(text.contains("length: Time"), "{text}");
@@ -545,5 +547,52 @@ fn audio_files_in_the_editor() {
         .into_iter()
         .map(|d| d.message)
         .collect();
-    assert!(messages.iter().any(|m| m.starts_with("cannot read `./gone.wav`")), "{messages:?}");
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.starts_with("cannot read `./gone.wav`")),
+        "{messages:?}"
+    );
+}
+
+#[test]
+fn images_in_the_editor() {
+    let folder = Folder::new("images", &[("notes.txt", "x")]);
+    // A 3 by 2 PPM, no alpha.
+    let mut ppm = b"P6\n3 2\n255\n".to_vec();
+    ppm.extend([200u8; 18]);
+    std::fs::create_dir_all(folder.path("pics")).unwrap();
+    std::fs::write(folder.path("pics/face.ppm"), &ppm).unwrap();
+    let labels = |src: &str| {
+        let (mut client, pos) = open(&folder, "song.rill", src);
+        let mut labels: Vec<String> = client
+            .request::<r::Completion>(complete_at(&folder, pos))
+            .unwrap()
+            .map(|c| c.items.into_iter().map(|i| i.label).collect())
+            .unwrap_or_default();
+        labels.sort();
+        labels
+    };
+    assert_eq!(labels("const FACE = ./pics/$"), ["./pics/face.ppm"]);
+    let fields =
+        labels("const FACE = ./pics/face.ppm\nrill main() Sample { return FACE.$width as Float }");
+    assert!(fields.contains(&"height".to_owned()), "{fields:?}");
+    assert!(fields.contains(&"alpha".to_owned()), "{fields:?}");
+    assert!(labels("fn f(a: Im$) Float { 1 }").contains(&"Image".to_owned()));
+
+    let src = "const FACE = ./pics/face.ppm\nrill main() Sample { return FACE.height as Float }$";
+    let (mut client, _) = open(&folder, "song.rill", src);
+    assert_eq!(client.diagnostics(&folder.uri("song.rill")).unwrap(), []);
+    let hover = |client: &mut Client, position| {
+        client
+            .request::<r::HoverRequest>(at(&folder, "song.rill", position))
+            .unwrap()
+            .map(|h| h.contents.value)
+            .unwrap_or_default()
+    };
+    let text = hover(&mut client, Position::new(0, 16));
+    assert!(text.contains("./pics/face.ppm: Image"), "{text}");
+    assert!(text.contains("3 by 2 pixels, no alpha channel."), "{text}");
+    let text = hover(&mut client, Position::new(1, 34));
+    assert!(text.contains("height: Int"), "{text}");
 }

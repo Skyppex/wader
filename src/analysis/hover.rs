@@ -67,6 +67,7 @@ impl Analysis {
                 .hover_seq_field(span)
                 .or_else(|| self.hover_instance_field(span))
                 .or_else(|| self.hover_audio_field(span))
+                .or_else(|| self.hover_image_field(span))
             {
                 Some(h) => h,
                 None => self.hover_builtin_arg(offset, span)?,
@@ -74,7 +75,9 @@ impl Analysis {
             TokenKind::Eof => return None,
             TokenKind::Path => match self.hover_import(span) {
                 Some(h) => h,
-                None => self.hover_audio(offset)?,
+                None => self
+                    .hover_audio(offset)
+                    .or_else(|| self.hover_image(offset))?,
             },
             TokenKind::Fn
             | TokenKind::Const
@@ -308,6 +311,42 @@ impl Analysis {
         let field = self.slice(span);
         let ty = rill::lang::check::audio_field(field)?;
         let doc = rill::lang::check::AUDIO_FIELDS
+            .iter()
+            .find(|(n, _)| *n == field)
+            .map(|(_, d)| (*d).to_owned());
+        Some(markdown(&format!("{field}: {ty}"), [doc]))
+    }
+
+    /// A path to an image: what it is.
+    fn hover_image(&self, offset: u32) -> Option<String> {
+        let (written, file) = self.image_at(offset)?;
+        let image = &file.image;
+        let alpha = if image.alpha {
+            "with an alpha channel"
+        } else {
+            "no alpha channel"
+        };
+        let facts = [
+            format!("{} by {} pixels, {alpha}.", image.width, image.height),
+            format!("`{}`", file.path.display()),
+        ];
+        Some(markdown(&format!("{written}: Image"), [Some(facts.join("\n\n"))]))
+    }
+
+    /// A field of an image, as in `FACE.height`: its type and meaning.
+    fn hover_image_field(&self, span: Span) -> Option<String> {
+        let i = self.tokens.iter().position(|t| t.span == span)?;
+        let dot = self.tokens.get(i.checked_sub(1)?)?;
+        if dot.kind != TokenKind::Dot {
+            return None;
+        }
+        let base = self.expr_at(dot.span.start.checked_sub(1)?)?;
+        if !matches!(self.checked.types.get(base.id as usize), Some(Type::Image(_))) {
+            return None;
+        }
+        let field = self.slice(span);
+        let ty = rill::lang::check::image_field(field)?;
+        let doc = rill::lang::check::IMAGE_FIELDS
             .iter()
             .find(|(n, _)| *n == field)
             .map(|(_, d)| (*d).to_owned());

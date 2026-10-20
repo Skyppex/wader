@@ -199,6 +199,16 @@ impl Analysis {
         Some((written, self.checked.audio.get(&e.id)?))
     }
 
+    /// The image at `offset` and how it is written, if a path to one is
+    /// there.
+    pub fn image_at(&self, offset: u32) -> Option<(&str, &rill::images::ImageRef)> {
+        let e = self.expr_at(offset)?;
+        let ExprKind::Path(written) = &e.kind else {
+            return None;
+        };
+        Some((written, self.checked.images.get(&e.id)?))
+    }
+
     /// The innermost expression containing `offset`.
     pub fn expr_at(&self, offset: u32) -> Option<&Expr> {
         let mut found = None;
