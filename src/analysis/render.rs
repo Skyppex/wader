@@ -410,7 +410,7 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
             "Defines a pure function: it takes exactly what it declares and keeps no state. Without a name, `fn(x) { ... }` is an anonymous fn."
         }
         "rill" => {
-            "Defines a stream processor. Its body runs once per tick and may keep `state`. A rill taking `Sample` can be applied to a frame; it then runs once per channel."
+            "Defines a stream processor. Its body runs once per tick and may keep `state`. A rill taking `Sample` can be applied to a frame; it then runs once per channel. Without a name, `rill(x) { ... }` is an anonymous rill: it can call rills, but keeps no `state` of its own."
         }
         "state" => {
             "A variable that keeps its value between ticks. Only at the top of a rill body, with a constant initial value."

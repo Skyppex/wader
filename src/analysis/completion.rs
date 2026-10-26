@@ -225,6 +225,9 @@ impl Analysis {
                 items.extend(self.seq_items());
                 items.extend(self.callable_items(offset, None));
                 let mut keywords = vec!["if", "fn", "true", "false"];
+                if self.rills_allowed(offset) {
+                    keywords.push("rill");
+                }
                 if self.at_rill_arg_start(offset) {
                     keywords.push("each");
                 }
@@ -462,7 +465,8 @@ impl Analysis {
     }
 
     /// Whether the `(` or `,` at token `before - 1` is in the parameter list
-    /// of a definition or an anonymous fn, where names are declared.
+    /// of a definition, an anonymous fn or rill, or a trailing closure,
+    /// where names are declared.
     fn in_param_list(&self, before: usize) -> bool {
         let mut depth = 0;
         for j in (0..before).rev() {
@@ -472,9 +476,11 @@ impl Analysis {
                 TokenKind::LBrace | TokenKind::RBrace => return false,
                 TokenKind::LParen if depth == 0 => {
                     let k = |n: usize| j.checked_sub(n).map(|i| self.tokens[i].kind);
-                    return k(1) == Some(TokenKind::Fn)
-                        || (k(1) == Some(TokenKind::Ident)
-                            && matches!(k(2), Some(TokenKind::Fn | TokenKind::Rill)))
+                    return matches!(
+                        k(1),
+                        Some(TokenKind::Fn | TokenKind::Rill | TokenKind::Arrow)
+                    ) || (k(1) == Some(TokenKind::Ident)
+                        && matches!(k(2), Some(TokenKind::Fn | TokenKind::Rill)))
                         || (k(1) == Some(TokenKind::Gt)
                             && self.in_def_signature(self.tokens[j].span.start));
                 }
@@ -874,25 +880,40 @@ impl Analysis {
         false
     }
 
-    /// Inside a rill's body and not in an anonymous fn: where rills can be
-    /// called and `state` declared.
+    /// Inside a rill's body and not in an anonymous fn or rill: where
+    /// `state` and handlers can go.
     fn in_rill_body(&self, offset: u32) -> bool {
-        let Some(d) = self.def_at(offset) else {
-            return false;
-        };
-        if self.checked.signatures[d].kind != DefKind::Rill {
-            return false;
-        }
-        let mut in_lambda = false;
+        self.in_rill_def(offset) && self.lambda_at(offset).is_none()
+    }
+
+    /// Where rills can be called: in a rill's body, or in an anonymous rill
+    /// there.
+    fn rills_allowed(&self, offset: u32) -> bool {
+        self.in_rill_def(offset)
+            && self
+                .lambda_at(offset)
+                .is_none_or(|id| matches!(self.checked.types[id as usize], Type::Rill(..)))
+    }
+
+    fn in_rill_def(&self, offset: u32) -> bool {
+        self.def_at(offset)
+            .is_some_and(|d| self.checked.signatures[d].kind == DefKind::Rill)
+    }
+
+    /// The innermost anonymous fn or rill whose body holds `offset`, by
+    /// expression id.
+    pub(super) fn lambda_at(&self, offset: u32) -> Option<u32> {
+        let d = self.def_at(offset)?;
+        let mut found = None;
         walk_block(&self.def(d).body, &mut |e| {
             if let ExprKind::Fn { body, .. } = &e.kind
                 && body.span.start < offset
                 && offset < body.span.end
             {
-                in_lambda = true;
+                found = Some(e.id);
             }
         });
-        !in_lambda
+        found
     }
 
     /// The type of the expression ending right before `end` (`x * 2` in
@@ -993,7 +1014,7 @@ impl Analysis {
     /// Fns, rills and prelude functions, and variables holding functions. With a
     /// piped type, the ones taking it first sort first.
     fn callable_items(&self, offset: u32, piped: Option<&Type>) -> Vec<CompletionItem> {
-        let rills_allowed = self.in_rill_body(offset);
+        let rills_allowed = self.rills_allowed(offset);
         // Recursion is not allowed, so the definition itself is no use.
         let current = self.def_at(offset);
         let fits = |p: Option<&Type>, lifts: bool| match (piped, p) {
@@ -1344,6 +1365,28 @@ mod tests {
         has(&src, &["let", "return"]);
         // Fns cannot call rills or keep state.
         lacks(&src, &["state", "osc"]);
+    }
+
+    #[test]
+    fn anonymous_rills_call_rills_but_keep_no_state() {
+        let apply = "rill apply(x: Sample, g: rill(Sample) Sample) Sample { return g(x) }\n";
+        let src = format!(
+            "{HEAD}{apply}rill main() Sample {{\n    return 1 |> apply -> (s) {{\n        $\n    }}\n}}"
+        );
+        has(&src, &["osc", "half", "s", "let", "rill"]);
+        lacks(&src, &["state", "on"]);
+        let src = format!(
+            "{HEAD}rill main() Sample {{\n    let f = fn(x: Sample) Sample {{\n        $\n    }}\n    return 0\n}}"
+        );
+        lacks(&src, &["osc", "state", "rill"]);
+        // The closure's parameters are names being declared.
+        assert!(
+            labels(&format!(
+                "{HEAD}{apply}rill main() Sample {{ return 1 |> apply -> (s$) {{ s }} }}"
+            ))
+            .is_empty()
+        );
+        assert!(labels("rill main() Sample { return rill(s$) { s } }").is_empty());
     }
 
     #[test]

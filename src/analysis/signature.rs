@@ -270,6 +270,27 @@ rill clip(x: Sample, drive: Float = 2, // how hard
     }
 
     #[test]
+    fn trailing_closures_are_outside_the_parentheses() {
+        let src = |call: &str| {
+            format!(
+                "{DEFS}rill fm(c: Sample, width: Float = 1, g: rill(Sample) Sample) Sample {{ return g(c * width) }}\n\
+                 rill main() Sample {{ return {call} }}"
+            )
+        };
+        assert_eq!(
+            active(&src("fm(1, $2) -> (s) { s }")).as_deref(),
+            Some("width: Float = 1")
+        );
+        // In the closure, only calls written there help.
+        assert_eq!(help(&src("fm(1) -> (s) { $s }")), None);
+        assert_eq!(help(&src("1 |> fm -> ($s) { s }")), None);
+        assert_eq!(
+            active(&src("1 |> fm -> (s) { clip($s) }")).as_deref(),
+            Some("x: Sample")
+        );
+    }
+
+    #[test]
     fn function_values() {
         let src = "rill main(f: fn(Sample, Float) Sample) Sample { return f(1, $2) }";
         assert_eq!(

@@ -291,14 +291,21 @@ impl Analysis {
             {
                 // Inside the parentheses: after the callee (and any explicit
                 // sizes, as in `f<4>(...)`), before the end (or at the end,
-                // if the closing parenthesis is missing).
-                let after = &self.text[callee.span.end as usize..e.span.end as usize];
+                // if the closing parenthesis is missing). A trailing closure
+                // is not in them: the call's own text ends before its `->`.
+                let end = match args.last() {
+                    Some(a) if a.trailing => {
+                        let before = &self.text[..a.value.span.start as usize];
+                        before.trim_end().len() as u32
+                    }
+                    _ => e.span.end,
+                };
+                let after = &self.text[callee.span.end as usize..end as usize];
                 let open = callee.span.end + after.find('(').unwrap_or(0) as u32;
                 let in_parens = open < offset
-                    && offset <= e.span.end
+                    && offset <= end
                     && self.text.as_bytes().get(open as usize) == Some(&b'(')
-                    && !(offset == e.span.end
-                        && self.text.as_bytes()[e.span.end as usize - 1] == b')');
+                    && !(offset == end && self.text.as_bytes()[end as usize - 1] == b')');
                 if in_parens {
                     found = Some((callee, args.as_slice(), *piped));
                 }

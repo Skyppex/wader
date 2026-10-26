@@ -167,7 +167,14 @@ impl Analysis {
                         let kind = self.checked.signatures[b.def].kind.word();
                         Some(format!("{what} of {kind} `{}`", def.name.name))
                     }
-                    BindingKind::FnParam => Some("parameter of an anonymous fn".into()),
+                    BindingKind::FnParam => {
+                        // Its scope is the body of the fn or rill it belongs to.
+                        let rill = self.lambda_at(b.scope.start + 1).is_some_and(|id| {
+                            matches!(self.checked.types[id as usize], Type::Rill(..))
+                        });
+                        let kind = if rill { "rill" } else { "fn" };
+                        Some(format!("parameter of an anonymous {kind}"))
+                    }
                     BindingKind::EventParam => self
                         .handler_of(b)
                         .map(|name| format!("the payload of event `{}`", name.name)),

@@ -284,7 +284,7 @@ fn completion_of_import_paths() {
     );
     assert_eq!(
         labels("import @gen/$"),
-        ["@gen/noise", "@gen/osc", "@gen/sampler"]
+        ["@gen/mod", "@gen/noise", "@gen/osc", "@gen/sampler"]
     );
 }
 
